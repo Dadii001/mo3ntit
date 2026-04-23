@@ -102,20 +102,30 @@ Return the brief only, no preamble, no bullet points — prose.`;
 }
 
 export async function buildCustomDm(artist: Omit<ArtistProfile, "artistBrief" | "customDm">): Promise<string> {
-  const prompt = `Write a warm, specific outreach DM to this indie artist from a music label scout. Max 4 short sentences. No emojis, no "hey girl/bro", no template feel. Reference one concrete detail from their profile or song.
+  const prompt = `Write a DM to this indie artist that will actually get a reply.
 
-Artist: ${artist.nickname} (@${artist.username})
+RULES (non-negotiable):
+- 2-3 short sentences MAX. No walls of text.
+- Gen-z voice: conversational, lowercase ok, no corporate "I'm a scout at [Label]" energy. Sound like a human who genuinely got their page suggested.
+- Reference ONE specific, concrete detail from their signature song or bio — something only a real listener would notice.
+- End with a light, low-commitment question that's easy to answer. Not "wanna hop on a call" — something softer.
+- NO emojis. NO "hey" or "hi" openers. NO "amazing/incredible/dope". NO "your vibe is immaculate".
+- Don't pitch a deal. Don't mention labels/contracts/signing. Goal = reply, not close.
+
+Context:
+Name: ${artist.nickname} (@${artist.username})
 Bio: ${artist.bio || "(empty)"}
 Followers: ${artist.followers.toLocaleString()}
-Genres hinted: ${[...artist.bioAnalysis.genres, ...artist.image.genreHints].join(", ") || "unclear"}
-Signature song: "${artist.song.title ?? "untitled original"}" (${artist.song.isOriginal ? "likely original" : "unconfirmed origin"}, used in ${artist.song.useCount} recent posts) — ${artist.song.brief}
-Video caption: "${artist.topVideo.desc}"
-Profile image: ${artist.image.description}
+Genre cues: ${[...artist.bioAnalysis.genres, ...artist.image.genreHints].join(", ") || "unclear"}
+Signature song: "${artist.song.title ?? "untitled original"}" — ${artist.song.isOriginal ? "their own track" : "unconfirmed origin"}, used in ${artist.song.useCount} recent posts.
+Song details: ${artist.song.brief}
+Caption on top post: "${artist.topVideo.desc}"
+Profile visual: ${artist.image.description}
 
-Return the DM text only.`;
+Return the DM text only, nothing else.`;
   const resp = await anthropic().messages.create({
     model: MODEL,
-    max_tokens: 300,
+    max_tokens: 200,
     messages: [{ role: "user", content: prompt }],
   });
   return (resp.content[0] as Anthropic.TextBlock).text.trim();

@@ -131,6 +131,7 @@ export async function runDiscovery(input: DiscoveryInput, emit: Emit): Promise<v
       }
 
       let song: SongAnalysis = {
+        musicId: signature?.musicId ?? null,
         url: songUrl,
         title: songTitle,
         author: songAuthor,

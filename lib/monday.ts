@@ -32,19 +32,41 @@ async function gql<T>(query: string, variables: Record<string, unknown> = {}): P
   return body.data as T;
 }
 
+function slugifyTitle(title: string): string {
+  return title
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\w\s-]/g, "")
+    .trim()
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .slice(0, 60);
+}
+
+function tiktokMusicUrl(musicId: string | null, title: string | null): string | null {
+  if (!musicId) return null;
+  const slug = title ? slugifyTitle(title) : "";
+  return slug
+    ? `https://www.tiktok.com/music/${slug}-${musicId}`
+    : `https://www.tiktok.com/music/${musicId}`;
+}
+
 export async function createArtistItem(
   artist: ArtistProfile,
 ): Promise<{ id: string; name: string }> {
-  const songLabel = artist.song.title ?? artist.topVideo.musicTitle ?? artist.topVideo.desc.slice(0, 120);
+  const songLink =
+    tiktokMusicUrl(artist.song.musicId, artist.song.title) ??
+    artist.song.url ??
+    artist.topVideo.playUrl ??
+    "";
+
   const columnValues = {
     [MONDAY_COLUMNS.tiktokProfile]: artist.profileUrl,
-    [MONDAY_COLUMNS.songName]: songLabel + (artist.song.isOriginal ? " (original)" : ""),
-    [MONDAY_COLUMNS.songLink]: artist.song.url ?? artist.topVideo.playUrl ?? "",
+    [MONDAY_COLUMNS.songName]: artist.song.title ?? "",
+    [MONDAY_COLUMNS.songLink]: songLink,
     [MONDAY_COLUMNS.songBrief]: artist.song.brief,
     [MONDAY_COLUMNS.artistBrief]: artist.artistBrief,
     [MONDAY_COLUMNS.customDm]: artist.customDm,
-    [MONDAY_COLUMNS.account]: artist.username,
-    [MONDAY_COLUMNS.status]: { label: "Working on it" },
     [MONDAY_COLUMNS.sentDate]: { date: new Date().toISOString().split("T")[0] },
   };
 
@@ -68,7 +90,7 @@ export async function createArtistItem(
 }
 
 export async function listExistingArtists(): Promise<Set<string>> {
-  const accountCol = MONDAY_COLUMNS.account;
+  const col = MONDAY_COLUMNS.tiktokProfile;
   const query = `
     query ($boardId: [ID!]) {
       boards(ids: $boardId) {
@@ -77,7 +99,7 @@ export async function listExistingArtists(): Promise<Set<string>> {
           items {
             id
             name
-            column_values(ids: ["${accountCol}"]) { id text }
+            column_values(ids: ["${col}"]) { id text }
           }
         }
       }
@@ -95,8 +117,9 @@ export async function listExistingArtists(): Promise<Set<string>> {
   const items = data.boards[0]?.items_page?.items ?? [];
   const set = new Set<string>();
   for (const item of items) {
-    const account = item.column_values.find((c) => c.id === accountCol)?.text;
-    if (account) set.add(account.toLowerCase());
+    const url = item.column_values.find((c) => c.id === col)?.text ?? "";
+    const match = url.match(/@([a-zA-Z0-9_.-]+)/);
+    if (match) set.add(match[1].toLowerCase());
   }
   return set;
 }
@@ -138,11 +161,13 @@ export async function listRecentArtists(limit = 50): Promise<MondayArtistRow[]> 
   const items = data.boards[0]?.items_page?.items ?? [];
   return items.map((item) => {
     const cv = Object.fromEntries(item.column_values.map((c) => [c.id, c.text]));
+    const profileUrl = cv[MONDAY_COLUMNS.tiktokProfile] ?? "";
+    const handle = profileUrl.match(/@([a-zA-Z0-9_.-]+)/)?.[1] ?? "";
     return {
       id: item.id,
       name: item.name,
-      account: cv[MONDAY_COLUMNS.account] ?? "",
-      profileUrl: cv[MONDAY_COLUMNS.tiktokProfile] ?? "",
+      account: handle,
+      profileUrl,
       status: cv[MONDAY_COLUMNS.status] ?? "",
       sentDate: cv[MONDAY_COLUMNS.sentDate] ?? "",
     };

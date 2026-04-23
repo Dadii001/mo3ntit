@@ -25,6 +25,7 @@ export type TikTokAuthor = {
 };
 
 export type SongAnalysis = {
+  musicId: string | null;
   url: string | null;
   title: string | null;
   author: string | null;
