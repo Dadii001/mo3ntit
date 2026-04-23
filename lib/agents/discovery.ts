@@ -127,13 +127,17 @@ export async function runDiscovery(input: DiscoveryInput, emit: Emit): Promise<v
         message: `[${username}] fetched ${recentPosts.length} posts, ${withMusic.length} with music metadata`,
       });
       if (withMusic.length > 0) {
-        const sample = withMusic[0];
-        const m = sample.music ?? sample.music_info ?? {};
-        const musicKeys = Object.keys(m).join(",");
+        const sample = withMusic[0] as Record<string, unknown>;
+        const m = sample.music ?? sample.music_info;
+        const preview =
+          typeof m === "string"
+            ? `string: "${(m as string).slice(0, 120)}"`
+            : `object keys: [${Object.keys(m ?? {}).join(",")}]`;
+        const topKeys = Object.keys(sample).slice(0, 20).join(",");
         emit({
           type: "log",
           level: "info",
-          message: `[${username}] sample music keys: [${musicKeys}] title="${(m as { title?: string }).title ?? "?"}" author="${(m as { author?: string }).author ?? "?"}"`,
+          message: `[${username}] sample post keys: [${topKeys}] | music = ${preview}`,
         });
       }
       const signature = pickSignatureSong(
