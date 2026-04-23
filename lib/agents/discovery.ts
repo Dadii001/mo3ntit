@@ -175,10 +175,8 @@ export async function enrichAndSaveArtist(
       song,
     };
 
-    const [artistBrief, customDm] = await Promise.all([
-      buildArtistBrief({ author, video: fallbackVideo, image, bioAnalysis, song }),
-      buildCustomDm(baseProfile),
-    ]);
+    const artistBrief = await buildArtistBrief({ author, video: fallbackVideo, image, bioAnalysis, song });
+    const customDm = await buildCustomDm({ artistBrief, songBrief: song.brief });
 
     const artist: ArtistProfile = { ...baseProfile, artistBrief, customDm };
 

@@ -1,6 +1,6 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { anthropic, extractJson, MODEL_FAST, MODEL } from "./claude";
-import type { ArtistProfile, BioAnalysis, ImageAnalysis, SongAnalysis, TikTokAuthor, TikTokVideo } from "./types";
+import type { BioAnalysis, ImageAnalysis, SongAnalysis, TikTokAuthor, TikTokVideo } from "./types";
 
 export async function analyzeBio(bio: string, nickname: string): Promise<BioAnalysis> {
   const prompt = `Extract structured info from this TikTok bio of an artist named "${nickname}":
@@ -89,26 +89,23 @@ Return the brief only, no preamble, no bullet points — prose.`;
   return (resp.content[0] as Anthropic.TextBlock).text.trim();
 }
 
-export async function buildCustomDm(artist: Omit<ArtistProfile, "artistBrief" | "customDm">): Promise<string> {
-  const prompt = `Write a DM to this indie artist that will actually get a reply.
+export async function buildCustomDm(args: { artistBrief: string; songBrief: string }): Promise<string> {
+  const prompt = `Write a DM to an indie artist that will actually get a reply.
 
 RULES (non-negotiable):
 - 2-3 short sentences MAX. No walls of text.
-- Gen-z voice: conversational, lowercase ok, no corporate "I'm a scout at [Label]" energy. Sound like a human who genuinely got their page suggested.
-- Reference ONE specific, concrete detail from their signature song or bio — something only a real listener would notice.
-- End with a light, low-commitment question that's easy to answer. Not "wanna hop on a call" — something softer.
-- NO emojis. NO "hey" or "hi" openers. NO "amazing/incredible/dope". NO "your vibe is immaculate".
+- Gen-z voice: conversational, lowercase ok, not corporate. Sound human.
+- Let the ARTIST BRIEF shape your tone and angle of approach.
+- Let the SONG BRIEF give you something specific to reference — pick one concrete detail only a real listener would notice.
+- End with a light, low-commitment question that's easy to answer. Soft, not "hop on a call".
+- NO emojis. NO "hey"/"hi" openers. NO "amazing/incredible/dope/your vibe".
 - Don't pitch a deal. Don't mention labels/contracts/signing. Goal = reply, not close.
 
-Context:
-Name: ${artist.nickname} (@${artist.username})
-Bio: ${artist.bio || "(empty)"}
-Followers: ${artist.followers.toLocaleString()}
-Genre cues: ${[...artist.bioAnalysis.genres, ...artist.image.genreHints].join(", ") || "unclear"}
-Signature song: "${artist.song.title ?? "untitled original"}" — ${artist.song.isOriginal ? "their own track" : "unconfirmed origin"}, used in ${artist.song.useCount} recent posts.
-Song details: ${artist.song.brief}
-Caption on top post: "${artist.topVideo.desc}"
-Profile visual: ${artist.image.description}
+ARTIST BRIEF:
+${args.artistBrief}
+
+SONG BRIEF:
+${args.songBrief}
 
 Return the DM text only, nothing else.`;
   const resp = await anthropic().messages.create({
