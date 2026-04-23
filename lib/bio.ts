@@ -90,16 +90,16 @@ Return the brief only, no preamble, no bullet points — prose.`;
 }
 
 export async function buildCustomDm(args: { artistBrief: string; songBrief: string }): Promise<string> {
-  const prompt = `Write a DM to an indie artist that will actually get a reply.
+  const prompt = `Write a DM to an indie artist that sounds like a real person who genuinely stumbled onto their stuff.
 
 RULES (non-negotiable):
-- 2-3 short sentences MAX. No walls of text.
-- Gen-z voice: conversational, lowercase ok, not corporate. Sound human.
-- Let the ARTIST BRIEF shape your tone and angle of approach.
-- Let the SONG BRIEF give you something specific to reference — pick one concrete detail only a real listener would notice.
-- End with a light, low-commitment question that's easy to answer. Soft, not "hop on a call".
-- NO emojis. NO "hey"/"hi" openers. NO "amazing/incredible/dope/your vibe".
-- Don't pitch a deal. Don't mention labels/contracts/signing. Goal = reply, not close.
+- 1-2 sentences. Three only if the joke needs it. Short wins.
+- Natural + a little funny. A dry observation, a self-aware aside, a light joke — NOT try-hard, NOT corporate, NOT "your vibe is immaculate" energy. Make them smirk, not roll their eyes.
+- Use the ARTIST BRIEF to calibrate tone (match their energy — if the artist is moody, don't be chipper; if they're chaotic, lean in).
+- Use the SONG BRIEF to pick ONE specific detail to riff on — something only someone who actually listened would notice.
+- End with a casual question or hook that's low-effort to answer. Or end with an observation that invites a reply. Avoid "hop on a call", "let's chat", "LFG".
+- NO emojis. NO "hey"/"hi" openers. NO generic compliments ("amazing/incredible/dope/fire/slaps"). NO exclamation marks unless sarcastic.
+- Don't pitch anything. Don't mention labels, signing, contracts, or yourself as a scout. Just be a human who liked the song.
 
 ARTIST BRIEF:
 ${args.artistBrief}
