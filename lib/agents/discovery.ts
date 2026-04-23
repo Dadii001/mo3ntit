@@ -123,7 +123,6 @@ export async function enrichAndSaveArtist(
       url: songUrl,
       title: songTitle,
       author: songAuthor,
-      bpm: null,
       durationSec: null,
       transcript: null,
       language: null,
@@ -150,7 +149,6 @@ export async function enrichAndSaveArtist(
     song.brief = await buildSongBrief({
       musicTitle: songTitle,
       musicAuthor: songAuthor,
-      bpm: song.bpm,
       durationSec: song.durationSec,
       transcript: song.transcript,
       videoDesc: fallbackVideo.desc,

@@ -15,50 +15,10 @@ async function download(url: string, dest: string): Promise<void> {
   await writeFile(dest, buf);
 }
 
-function runFfmpeg(args: string[]): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const p = spawn(ffmpegPath, args, { stdio: ["ignore", "ignore", "pipe"] });
-    let stderr = "";
-    p.stderr.on("data", (d) => (stderr += d.toString()));
-    p.on("error", reject);
-    p.on("close", (code) => (code === 0 ? resolve() : reject(new Error(`ffmpeg exited ${code}: ${stderr.slice(-500)}`))));
-  });
-}
-
 async function workDir(): Promise<string> {
   const dir = join(tmpdir(), `iaf-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
   await mkdir(dir, { recursive: true });
   return dir;
-}
-
-async function decodePcm(mp3Path: string): Promise<{ samples: Float32Array; sampleRate: number }> {
-  const pcmPath = mp3Path.replace(/\.mp3$/, ".pcm");
-  const sampleRate = 22050;
-  await runFfmpeg([
-    "-y",
-    "-i", mp3Path,
-    "-f", "f32le",
-    "-ac", "1",
-    "-ar", String(sampleRate),
-    pcmPath,
-  ]);
-  const buf = await readFile(pcmPath);
-  await unlink(pcmPath).catch(() => {});
-  const samples = new Float32Array(buf.byteLength / 4);
-  for (let i = 0; i < samples.length; i++) samples[i] = buf.readFloatLE(i * 4);
-  return { samples, sampleRate };
-}
-
-async function detectBpm(samples: Float32Array, sampleRate: number): Promise<number | null> {
-  try {
-    const MusicTempo = require("music-tempo");
-    const arr = Array.from(samples);
-    const mt = new MusicTempo(arr, { sampleRate });
-    const bpm = Math.round(parseFloat(mt.tempo));
-    return Number.isFinite(bpm) && bpm > 40 && bpm < 220 ? bpm : null;
-  } catch {
-    return null;
-  }
 }
 
 async function durationSec(mp3Path: string): Promise<number | null> {
@@ -95,7 +55,6 @@ async function transcribeWhisper(mp3Path: string): Promise<{ text: string; langu
 }
 
 export async function analyzeAudio(url: string): Promise<{
-  bpm: number | null;
   durationSec: number | null;
   transcript: string | null;
   language: string | null;
@@ -104,14 +63,11 @@ export async function analyzeAudio(url: string): Promise<{
   const mp3Path = join(dir, "song.mp3");
   try {
     await download(url, mp3Path);
-    const [dur, decoded, whisper] = await Promise.all([
+    const [dur, whisper] = await Promise.all([
       durationSec(mp3Path),
-      decodePcm(mp3Path).catch(() => null),
       transcribeWhisper(mp3Path).catch(() => null),
     ]);
-    const bpm = decoded ? await detectBpm(decoded.samples, decoded.sampleRate) : null;
     return {
-      bpm,
       durationSec: dur,
       transcript: whisper?.text ?? null,
       language: whisper?.language ?? null,

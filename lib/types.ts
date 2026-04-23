@@ -30,7 +30,6 @@ export type SongAnalysis = {
   url: string | null;
   title: string | null;
   author: string | null;
-  bpm: number | null;
   durationSec: number | null;
   transcript: string | null;
   language: string | null;

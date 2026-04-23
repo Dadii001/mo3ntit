@@ -44,7 +44,7 @@ Bio: ${author.signature || "(empty)"}
 Bio analysis: ${JSON.stringify(bioAnalysis)}
 Profile image: ${image.description} (mood: ${image.mood}, style: ${image.visualStyle}, genre hints: ${image.genreHints.join(", ")})
 Top video: "${video.desc}" — ${video.stats.plays.toLocaleString()} plays, ${video.stats.likes.toLocaleString()} likes
-Signature song: "${song.title ?? "untitled original"}" by ${song.author ?? author.nickname} — ${song.isOriginal ? "likely original" : "unconfirmed"}, used in ${song.useCount} recent posts, ${song.bpm ? `${song.bpm} BPM` : "tempo unknown"}
+Signature song: "${song.title ?? "untitled original"}" by ${song.author ?? author.nickname} — ${song.isOriginal ? "likely original" : "unconfirmed"}, used in ${song.useCount} recent posts
 Song brief: ${song.brief}
 
 Return the brief only, no preamble.`;
@@ -59,7 +59,6 @@ Return the brief only, no preamble.`;
 export async function buildSongBrief(args: {
   musicTitle: string | null;
   musicAuthor: string | null;
-  bpm: number | null;
   durationSec: number | null;
   transcript: string | null;
   videoDesc: string;
@@ -68,23 +67,12 @@ export async function buildSongBrief(args: {
   totalPlays: number;
   recentVideoCount: number;
 }): Promise<string> {
-  const tempoBand = args.bpm
-    ? args.bpm < 80
-      ? "slow / downtempo"
-      : args.bpm < 110
-      ? "mid-tempo"
-      : args.bpm < 140
-      ? "upbeat"
-      : "high-energy / dance"
-    : "unknown";
-
-  const prompt = `Write a detailed 4-5 sentence A&R brief on this song. Cover: (1) genre + sub-genre cues, (2) tempo/energy + production polish signals, (3) lyrical theme and mood from the transcript, (4) vocal / instrumental standout traits if detectable, (5) commercial positioning. Be specific — no filler, no hedging about "without more data".
+  const prompt = `Write a detailed 4-5 sentence A&R brief on this song. Cover: (1) genre + sub-genre cues, (2) energy and production polish signals, (3) lyrical theme and mood from the transcript, (4) vocal / instrumental standout traits if detectable, (5) commercial positioning. Be specific — no filler, no hedging about "without more data".
 
 Title: ${args.musicTitle ?? "(untitled original sound)"}
 Credited artist: ${args.musicAuthor ?? "(unknown)"}
 Status: ${args.isOriginal ? "Confirmed original by this artist" : "Usage match unclear — may be cover, collab, or external track"}
 Signature usage: this artist used this track in ${args.useCount} of their last ${args.recentVideoCount} posts (total ${args.totalPlays.toLocaleString()} plays on those posts)
-Tempo: ${args.bpm ? `${args.bpm} BPM (${tempoBand})` : "unknown"}
 Duration: ${args.durationSec ? `${args.durationSec}s` : "unknown"}
 Most-liked caption with this song: "${args.videoDesc}"
 Lyrics transcript:

@@ -9,7 +9,7 @@ type FoundArtist = {
   followers?: number;
   artistBrief?: string;
   customDm?: string;
-  song?: { bpm?: number | null; brief?: string };
+  song?: { brief?: string };
   image?: { mood?: string; genreHints?: string[] };
   mondayId?: string;
 };
@@ -225,7 +225,6 @@ export function DiscoveryRunner() {
                     {a.followers != null && (
                       <span className="pill mono">{a.followers.toLocaleString()} followers</span>
                     )}
-                    {a.song?.bpm != null && <span className="pill mono">{a.song.bpm} BPM</span>}
                     {a.mondayId && <span className="pill pill-live">Saved #{a.mondayId}</span>}
                   </div>
                 </div>

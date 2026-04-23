@@ -6,7 +6,7 @@ Three agents are planned. One is live today.
 
 | Agent | Role | Status |
 |---|---|---|
-| **Discovery** | Search hashtags, analyze song tempo + lyrics, profile image, and bio. Save enriched profiles to Monday. | ✅ Live |
+| **Discovery** | Search hashtags, temporarily download the signature song and transcribe lyrics, analyze profile image + bio. Save enriched profiles to Monday. | ✅ Live |
 | **First DM** | Send the opening DM to new leads and manage the reply thread. | 🕘 Coming |
 | **Offers** | Send tailored offers to qualified leads and run the order lifecycle. | 🕘 Coming |
 
@@ -18,7 +18,7 @@ Three agents are planned. One is live today.
 - **Claude** via `@anthropic-ai/sdk` — `claude-sonnet-4-6` for briefs/DMs, `claude-haiku-4-5` for vision + bio parsing
 - **RapidAPI TikTok Scraper** — hashtags, posts, user info, song URLs
 - **Monday.com GraphQL API** (v2024-10) — items, dedup, board view
-- **ffmpeg-static + music-tempo** — BPM detection on downloaded song audio
+- **ffmpeg-static** — extracts audio duration from temporarily-downloaded mp3 (file is deleted after transcription)
 - **OpenAI Whisper** (optional) — song lyric transcription. Without it, everything else still works
 - **Tailwind v4** — dashboard UI
 
@@ -42,7 +42,7 @@ lib/
 ├── claude.ts             # Anthropic client + model constants
 ├── vision.ts             # Claude image analysis
 ├── bio.ts                # Claude bio / brief / DM generation
-├── audio.ts              # ffmpeg + Whisper + music-tempo pipeline
+├── audio.ts              # ffmpeg duration probe + Whisper transcription pipeline
 └── types.ts
 components/
 └── discovery-runner.tsx  # Client component — streams SSE events, renders live log + found artists
@@ -58,7 +58,7 @@ Board `18409593345`, group `topics`. The column ID map lives in [lib/monday.ts](
 | Tiktok Profile | `text_mm2nma7h` | `https://tiktok.com/@<handle>` |
 | Song name | `text_mm2n7n5n` | `music_info.title` (or video caption) |
 | Song Link | `text_mm2nzfqr` | Direct song mp3 URL |
-| Song brief | `long_text_mm2n2btf` | Claude summary from tempo + transcript + caption |
+| Song brief | `long_text_mm2n2btf` | Claude summary from transcript + caption + signature usage |
 | Artist brief | `long_text_mm2n416p` | Claude summary from bio + image + song |
 | Custom DM | `long_text_mm2nf188` | Claude-drafted opener |
 | Account | `text_mm2nveb0` | TikTok unique handle (used for dedup) |
@@ -94,7 +94,7 @@ For a given hashtag:
    - Filter by `minFollowers` / `maxFollowers`
    - `claude.vision` — analyze the profile image (style, mood, genre hints)
    - `claude.text` — parse the bio (real name, location, genres, contact links)
-   - `audio.pipeline` — download the song mp3, extract tempo with `music-tempo`, transcribe with Whisper (if enabled)
+   - `audio.pipeline` — temporarily download the song mp3, transcribe with Whisper (if enabled), delete the file after
    - `claude.text` — synthesize a song brief, artist brief, and a custom DM draft
    - `monday.create` — push a row with all of the above
 
@@ -123,5 +123,4 @@ New agent? Add to `lib/agents/registry.ts` and drop a route under `app/agents/[i
 
 - Monday API calls are serialized; large runs respect Monday's rate limits
 - The discovery run uses `runtime = "nodejs"` — don't flip it to edge; ffmpeg won't run there
-- BPM detection is approximate (±2 BPM typical on polished recordings; noisier on lo-fi). It's a scouting signal, not ground truth
 - Transcription uses Whisper `whisper-1`. For higher-quality lyric transcription on music, consider Whisper `large-v3` via a self-hosted endpoint

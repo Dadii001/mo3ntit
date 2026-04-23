@@ -14,9 +14,9 @@ export const AGENTS: AgentMeta[] = [
     id: "discovery",
     name: "Discovery Agent",
     description:
-      "Scans TikTok hashtags for indie artists, analyzes their song (tempo, transcript), profile image, and bio with Claude, then pushes enriched profiles to Monday.",
+      "Scans TikTok hashtags for indie artists, analyzes their signature song (lyrics transcript), profile image, and bio with Claude, then pushes enriched profiles to Monday.",
     status: "live",
-    tools: ["tiktok.search", "audio.tempo", "audio.transcribe", "claude.vision", "claude.text", "monday.create"],
+    tools: ["tiktok.search", "audio.transcribe", "claude.vision", "claude.text", "monday.create"],
     tagline: "Find and enrich",
   },
   {
