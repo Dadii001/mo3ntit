@@ -186,6 +186,7 @@ export type SignatureSong = {
   useCount: number;
   isOwn: boolean;
   videoIds: string[];
+  numericVideoIds: string[];
   totalPlays: number;
 };
 
@@ -201,13 +202,15 @@ export function pickSignatureSong(
     const key = (extractedId ?? m.title ?? "").trim();
     if (!key) continue;
     const own = isOwnSong({ title: m.title, author: m.author }, artist);
-    const vid = numericId(v.aweme_id, v.item_id, v.id);
+    const numericVid = numericId(v.aweme_id, v.item_id, v.id);
+    const vid = numericVid ?? String(v.aweme_id ?? v.item_id ?? v.id ?? v.video_id ?? "");
     if (!vid) continue;
     const plays = v.play_count ?? 0;
     const existing = byKey.get(key);
     if (existing) {
       existing.useCount++;
       existing.videoIds.push(vid);
+      if (numericVid) existing.numericVideoIds.push(numericVid);
       existing.totalPlays += plays;
       if (!existing.playUrl) existing.playUrl = resolveMusicUrl(m);
     } else {
@@ -219,6 +222,7 @@ export function pickSignatureSong(
         useCount: 1,
         isOwn: own,
         videoIds: [vid],
+        numericVideoIds: numericVid ? [numericVid] : [],
         totalPlays: plays,
       });
     }

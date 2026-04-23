@@ -137,10 +137,12 @@ export async function runDiscovery(input: DiscoveryInput, emit: Emit): Promise<v
         });
       }
 
-      const signatureVideoId = signature?.videoIds.find((id) => id) ?? video.id;
-      const signatureVideoUrl = signatureVideoId
-        ? tiktokVideoUrl(author.uniqueId, signatureVideoId)
-        : null;
+      const signatureNumericId = signature?.numericVideoIds[0];
+      const fallbackNumericId = /^\d{15,}$/.test(video.id) ? video.id : null;
+      const usableVideoId = signatureNumericId ?? fallbackNumericId;
+      const signatureVideoUrl = usableVideoId
+        ? tiktokVideoUrl(author.uniqueId, usableVideoId)
+        : tiktokProfileUrl(author.uniqueId);
 
       let song: SongAnalysis = {
         musicId: signature?.musicId ?? null,
