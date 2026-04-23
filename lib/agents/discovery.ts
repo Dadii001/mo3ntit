@@ -137,11 +137,15 @@ export async function runDiscovery(input: DiscoveryInput, emit: Emit): Promise<v
         });
       }
 
-      const signatureNumericId = signature?.numericVideoIds[0];
-      const fallbackNumericId = /^\d{15,}$/.test(video.id) ? video.id : null;
-      const usableVideoId = signatureNumericId ?? fallbackNumericId;
-      const signatureVideoUrl = usableVideoId
-        ? tiktokVideoUrl(author.uniqueId, usableVideoId)
+      // Pick a video URL that actually contains the song we're analyzing.
+      // If we have a signature → pick one of its videos. If we fall back to the
+      // hashtag video's song → use the hashtag video. Either way, the URL must
+      // point to the post whose audio we downloaded.
+      const songSourceNumericId = signature
+        ? signature.numericVideoIds[0] ?? null
+        : /^\d{15,}$/.test(video.id) ? video.id : null;
+      const signatureVideoUrl = songSourceNumericId
+        ? tiktokVideoUrl(author.uniqueId, songSourceNumericId)
         : tiktokProfileUrl(author.uniqueId);
 
       let song: SongAnalysis = {
