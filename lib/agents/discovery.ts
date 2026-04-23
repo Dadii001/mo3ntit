@@ -109,10 +109,10 @@ export async function runDiscovery(input: DiscoveryInput, emit: Emit): Promise<v
         summary: "(bio analysis failed)",
       }));
 
-      emit({ type: "log", level: "info", message: `[${username}] pulling recent posts to find signature song…` });
+      emit({ type: "log", level: "info", message: `[${username}] pulling recent posts (user_id=${author.uid})…` });
       let recentPosts: Awaited<ReturnType<typeof getUserPosts>> = [];
       try {
-        recentPosts = await getUserPosts(username, 15);
+        recentPosts = await getUserPosts(author.uid, 15);
       } catch (e) {
         emit({
           type: "log",

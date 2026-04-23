@@ -129,17 +129,33 @@ export async function getHashtagPosts(
 
 export type RawVideoExport = RawVideo;
 
-export async function getUserPosts(uniqueId: string, count = 15): Promise<RawVideo[]> {
+export async function getUserPosts(userId: string, count = 15): Promise<RawVideo[]> {
   const data = await rapid<{
     videos?: RawVideo[];
     aweme_list?: RawVideo[];
     items?: RawVideo[];
   }>("/user/posts", {
-    unique_id: uniqueId,
+    user_id: userId,
     count: String(count),
     cursor: "0",
+    sort_type: "0",
   });
   return data.videos ?? data.aweme_list ?? data.items ?? [];
+}
+
+export async function getMusicInfo(musicUrl: string): Promise<{
+  id?: string;
+  title?: string;
+  author?: string;
+  play?: string;
+  cover?: string;
+  duration?: number;
+} | null> {
+  try {
+    return await rapid("/music/info", { url: musicUrl });
+  } catch {
+    return null;
+  }
 }
 
 function normalize(s: string): string {
