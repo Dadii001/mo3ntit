@@ -43,7 +43,7 @@ export async function createArtistItem(
     [MONDAY_COLUMNS.artistBrief]: artist.artistBrief,
     [MONDAY_COLUMNS.customDm]: artist.customDm,
     [MONDAY_COLUMNS.account]: artist.username,
-    [MONDAY_COLUMNS.status]: { label: "New" },
+    [MONDAY_COLUMNS.status]: { label: "Working on it" },
     [MONDAY_COLUMNS.sentDate]: { date: new Date().toISOString().split("T")[0] },
   };
 
