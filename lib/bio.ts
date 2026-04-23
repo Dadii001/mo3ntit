@@ -44,7 +44,7 @@ Bio: ${author.signature || "(empty)"}
 Bio analysis: ${JSON.stringify(bioAnalysis)}
 Profile image: ${image.description} (mood: ${image.mood}, style: ${image.visualStyle}, genre hints: ${image.genreHints.join(", ")})
 Top video: "${video.desc}" — ${video.stats.plays.toLocaleString()} plays, ${video.stats.likes.toLocaleString()} likes
-Song: "${video.musicTitle ?? "original"}" by ${video.musicAuthor ?? author.nickname} — ${song.bpm ? `${song.bpm} BPM` : "tempo unknown"}
+Signature song: "${song.title ?? "untitled original"}" by ${song.author ?? author.nickname} — ${song.isOriginal ? "likely original" : "unconfirmed"}, used in ${song.useCount} recent posts, ${song.bpm ? `${song.bpm} BPM` : "tempo unknown"}
 Song brief: ${song.brief}
 
 Return the brief only, no preamble.`;
@@ -63,20 +63,39 @@ export async function buildSongBrief(args: {
   durationSec: number | null;
   transcript: string | null;
   videoDesc: string;
+  isOriginal: boolean;
+  useCount: number;
+  totalPlays: number;
+  recentVideoCount: number;
 }): Promise<string> {
-  const prompt = `Write a 2-3 sentence brief of this song for a music label's A&R team.
+  const tempoBand = args.bpm
+    ? args.bpm < 80
+      ? "slow / downtempo"
+      : args.bpm < 110
+      ? "mid-tempo"
+      : args.bpm < 140
+      ? "upbeat"
+      : "high-energy / dance"
+    : "unknown";
 
-Title: ${args.musicTitle ?? "(original sound)"}
-Credited author: ${args.musicAuthor ?? "(unknown)"}
-Tempo: ${args.bpm ? `${args.bpm} BPM` : "unknown"}
+  const prompt = `Write a detailed 4-5 sentence A&R brief on this song. Cover: (1) genre + sub-genre cues, (2) tempo/energy + production polish signals, (3) lyrical theme and mood from the transcript, (4) vocal / instrumental standout traits if detectable, (5) commercial positioning. Be specific — no filler, no hedging about "without more data".
+
+Title: ${args.musicTitle ?? "(untitled original sound)"}
+Credited artist: ${args.musicAuthor ?? "(unknown)"}
+Status: ${args.isOriginal ? "Confirmed original by this artist" : "Usage match unclear — may be cover, collab, or external track"}
+Signature usage: this artist used this track in ${args.useCount} of their last ${args.recentVideoCount} posts (total ${args.totalPlays.toLocaleString()} plays on those posts)
+Tempo: ${args.bpm ? `${args.bpm} BPM (${tempoBand})` : "unknown"}
 Duration: ${args.durationSec ? `${args.durationSec}s` : "unknown"}
-Video caption: "${args.videoDesc}"
-Lyrics transcript: ${args.transcript ? args.transcript.slice(0, 2000) : "(not available)"}
+Most-liked caption with this song: "${args.videoDesc}"
+Lyrics transcript:
+"""
+${args.transcript ? args.transcript.slice(0, 3000) : "(no transcript — audio-only instrumental or transcription unavailable)"}
+"""
 
-Cover: energy, genre cues, lyrical theme if known, production quality signals. Return brief only.`;
+Return the brief only, no preamble, no bullet points — prose.`;
   const resp = await anthropic().messages.create({
-    model: MODEL_FAST,
-    max_tokens: 300,
+    model: MODEL,
+    max_tokens: 500,
     messages: [{ role: "user", content: prompt }],
   });
   return (resp.content[0] as Anthropic.TextBlock).text.trim();
@@ -89,7 +108,7 @@ Artist: ${artist.nickname} (@${artist.username})
 Bio: ${artist.bio || "(empty)"}
 Followers: ${artist.followers.toLocaleString()}
 Genres hinted: ${[...artist.bioAnalysis.genres, ...artist.image.genreHints].join(", ") || "unclear"}
-Song: "${artist.topVideo.musicTitle ?? "original"}" — ${artist.song.brief}
+Signature song: "${artist.song.title ?? "untitled original"}" (${artist.song.isOriginal ? "likely original" : "unconfirmed origin"}, used in ${artist.song.useCount} recent posts) — ${artist.song.brief}
 Video caption: "${artist.topVideo.desc}"
 Profile image: ${artist.image.description}
 

@@ -35,9 +35,10 @@ async function gql<T>(query: string, variables: Record<string, unknown> = {}): P
 export async function createArtistItem(
   artist: ArtistProfile,
 ): Promise<{ id: string; name: string }> {
+  const songLabel = artist.song.title ?? artist.topVideo.musicTitle ?? artist.topVideo.desc.slice(0, 120);
   const columnValues = {
     [MONDAY_COLUMNS.tiktokProfile]: artist.profileUrl,
-    [MONDAY_COLUMNS.songName]: artist.topVideo.musicTitle ?? artist.topVideo.desc.slice(0, 120),
+    [MONDAY_COLUMNS.songName]: songLabel + (artist.song.isOriginal ? " (original)" : ""),
     [MONDAY_COLUMNS.songLink]: artist.song.url ?? artist.topVideo.playUrl ?? "",
     [MONDAY_COLUMNS.songBrief]: artist.song.brief,
     [MONDAY_COLUMNS.artistBrief]: artist.artistBrief,

@@ -107,6 +107,108 @@ export async function getHashtagPosts(
   });
 }
 
+export type RawVideoExport = RawVideo;
+
+export async function getUserPosts(uniqueId: string, count = 15): Promise<RawVideo[]> {
+  const data = await rapid<{ videos?: RawVideo[] }>("/user/posts", {
+    unique_id: uniqueId,
+    count: String(count),
+    cursor: "0",
+  });
+  return data.videos ?? [];
+}
+
+function normalize(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function isOwnSong(
+  music: { title?: string | null; author?: string | null },
+  artist: { uniqueId: string; nickname: string },
+): boolean {
+  const candidates = [normalize(artist.uniqueId), normalize(artist.nickname)].filter(
+    (s) => s.length >= 3,
+  );
+  if (candidates.length === 0) return false;
+
+  const musicAuthor = normalize(music.author ?? "");
+  if (musicAuthor) {
+    for (const c of candidates) {
+      if (musicAuthor === c) return true;
+      if (musicAuthor.includes(c) && c.length >= 4) return true;
+      if (c.includes(musicAuthor) && musicAuthor.length >= 4) return true;
+    }
+  }
+
+  const title = music.title ?? "";
+  if (!title) return false;
+
+  const segs = title.split(/\s*[-–—|]\s*/).map(normalize).filter(Boolean);
+  for (const seg of segs) {
+    for (const c of candidates) {
+      if (seg === c) return true;
+      if (seg.length >= 4 && (seg.includes(c) || c.includes(seg))) return true;
+    }
+  }
+
+  const titleNorm = normalize(title);
+  for (const c of candidates) {
+    if (c.length >= 4 && titleNorm.includes(c)) return true;
+  }
+  return false;
+}
+
+export type SignatureSong = {
+  musicId: string | null;
+  title: string | null;
+  author: string | null;
+  playUrl: string | null;
+  useCount: number;
+  isOwn: boolean;
+  videoIds: string[];
+  totalPlays: number;
+};
+
+export function pickSignatureSong(
+  artist: { uniqueId: string; nickname: string },
+  videos: RawVideo[],
+): SignatureSong | null {
+  const byKey = new Map<string, SignatureSong>();
+  for (const v of videos) {
+    const m = v.music ?? v.music_info;
+    if (!m) continue;
+    const key = String(m.id ?? m.title ?? "").trim();
+    if (!key) continue;
+    const own = isOwnSong({ title: m.title, author: m.author }, artist);
+    const vid = v.aweme_id ?? v.video_id ?? "";
+    const plays = v.play_count ?? 0;
+    const existing = byKey.get(key);
+    if (existing) {
+      existing.useCount++;
+      existing.videoIds.push(vid);
+      existing.totalPlays += plays;
+      if (!existing.playUrl) existing.playUrl = resolveMusicUrl(m);
+    } else {
+      byKey.set(key, {
+        musicId: m.id ? String(m.id) : null,
+        title: m.title ?? null,
+        author: m.author ?? null,
+        playUrl: resolveMusicUrl(m),
+        useCount: 1,
+        isOwn: own,
+        videoIds: [vid],
+        totalPlays: plays,
+      });
+    }
+  }
+  if (byKey.size === 0) return null;
+  return Array.from(byKey.values()).sort((a, b) => {
+    if (a.isOwn !== b.isOwn) return a.isOwn ? -1 : 1;
+    if (b.useCount !== a.useCount) return b.useCount - a.useCount;
+    return b.totalPlays - a.totalPlays;
+  })[0];
+}
+
 function resolveMusicUrl(m: MusicField | undefined): string | null {
   if (!m) return null;
   if (typeof m.play === "string" && m.play) return m.play;

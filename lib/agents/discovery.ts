@@ -5,6 +5,8 @@ import {
   getHashtagInfo,
   getHashtagPosts,
   getUserInfo,
+  getUserPosts,
+  pickSignatureSong,
   tiktokProfileUrl,
   videosFromHashtagPosts,
 } from "../tiktok";
@@ -106,21 +108,47 @@ export async function runDiscovery(input: DiscoveryInput, emit: Emit): Promise<v
         summary: "(bio analysis failed)",
       }));
 
-      const songUrl = video.musicPlayUrl;
+      emit({ type: "log", level: "info", message: `[${username}] pulling recent posts to find signature song…` });
+      const recentPosts = await getUserPosts(username, 15).catch(() => []);
+      const signature = pickSignatureSong(
+        { uniqueId: author.uniqueId, nickname: author.nickname },
+        recentPosts,
+      );
+
+      const songTitle = signature?.title ?? video.musicTitle;
+      const songAuthor = signature?.author ?? video.musicAuthor;
+      const songUrl = signature?.playUrl ?? video.musicPlayUrl;
+      const useCount = signature?.useCount ?? 1;
+      const totalPlays = signature?.totalPlays ?? video.stats.plays;
+      const isOriginal = signature?.isOwn ?? false;
+
+      if (signature) {
+        emit({
+          type: "log",
+          level: "info",
+          message: `[${username}] signature: "${signature.title ?? "(untitled)"}" by ${signature.author ?? "?"} — used ${signature.useCount}×, ${isOriginal ? "likely own" : "not confirmed as own"}`,
+        });
+      }
+
       let song: SongAnalysis = {
         url: songUrl,
+        title: songTitle,
+        author: songAuthor,
         bpm: null,
         durationSec: null,
         transcript: null,
         language: null,
+        isOriginal,
+        useCount,
+        totalVideoPlays: totalPlays,
         brief: "",
       };
 
       if (songUrl) {
-        emit({ type: "log", level: "info", message: `[${username}] downloading + analyzing song…` });
+        emit({ type: "log", level: "info", message: `[${username}] downloading + analyzing signature song…` });
         try {
           const audio = await analyzeAudio(songUrl);
-          song = { url: songUrl, ...audio, brief: "" };
+          song = { ...song, ...audio };
         } catch (e) {
           emit({
             type: "log",
@@ -131,12 +159,16 @@ export async function runDiscovery(input: DiscoveryInput, emit: Emit): Promise<v
       }
 
       song.brief = await buildSongBrief({
-        musicTitle: video.musicTitle,
-        musicAuthor: video.musicAuthor,
+        musicTitle: songTitle,
+        musicAuthor: songAuthor,
         bpm: song.bpm,
         durationSec: song.durationSec,
         transcript: song.transcript,
         videoDesc: video.desc,
+        isOriginal,
+        useCount,
+        totalPlays,
+        recentVideoCount: recentPosts.length,
       });
 
       const baseProfile: Omit<ArtistProfile, "artistBrief" | "customDm"> = {
