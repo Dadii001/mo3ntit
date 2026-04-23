@@ -120,7 +120,11 @@ export async function runDiscovery(input: DiscoveryInput, emit: Emit): Promise<v
           message: `[${username}] /user/posts failed: ${(e as Error).message}`,
         });
       }
-      const withMusic = recentPosts.filter((p) => p.music ?? p.music_info);
+      const withMusic = recentPosts.filter(
+        (p) =>
+          (typeof p.music_info === "object" && p.music_info) ||
+          (typeof p.music === "object" && p.music),
+      );
       emit({
         type: "log",
         level: "info",

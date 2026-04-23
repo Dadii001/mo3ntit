@@ -89,6 +89,7 @@ type RawVideo = {
   id?: string | number;
   title?: string;
   desc?: string;
+  content_desc?: string;
   create_time: number;
   play?: string;
   wmplay?: string;
@@ -105,9 +106,23 @@ type RawVideo = {
     nickname: string;
     avatar: string;
   };
-  music?: MusicField;
+  music?: MusicField | string;
   music_info?: MusicField;
 };
+
+function pickMusicObject(v: RawVideo): MusicField | null {
+  if (v.music_info && typeof v.music_info === "object") return v.music_info;
+  if (v.music && typeof v.music === "object") return v.music;
+  return null;
+}
+
+function pickMusicUrl(v: RawVideo): string | null {
+  const obj = pickMusicObject(v);
+  const fromObj = resolveMusicUrl(obj);
+  if (fromObj) return fromObj;
+  if (typeof v.music === "string" && v.music) return v.music;
+  return null;
+}
 
 type ChallengePostsResp = {
   cursor: string;
@@ -216,7 +231,7 @@ export function pickSignatureSong(
 ): SignatureSong | null {
   const byKey = new Map<string, SignatureSong>();
   for (const v of videos) {
-    const m = v.music ?? v.music_info;
+    const m = pickMusicObject(v);
     if (!m) continue;
     const extractedId = extractMusicId(m);
     const key = (extractedId ?? m.title ?? "").trim();
@@ -232,13 +247,13 @@ export function pickSignatureSong(
       existing.videoIds.push(vid);
       if (numericVid) existing.numericVideoIds.push(numericVid);
       existing.totalPlays += plays;
-      if (!existing.playUrl) existing.playUrl = resolveMusicUrl(m);
+      if (!existing.playUrl) existing.playUrl = pickMusicUrl(v);
     } else {
       byKey.set(key, {
         musicId: extractedId,
         title: m.title ?? null,
         author: m.author ?? null,
-        playUrl: resolveMusicUrl(m),
+        playUrl: pickMusicUrl(v),
         useCount: 1,
         isOwn: own,
         videoIds: [vid],
@@ -311,15 +326,15 @@ export function videosFromHashtagPosts(
     const uniqueId = v.author?.unique_id;
     if (!uniqueId) continue;
     if (seenAuthors.has(uniqueId) || byAuthor.has(uniqueId)) continue;
-    const music = v.music ?? v.music_info ?? null;
+    const music = pickMusicObject(v);
     const video: TikTokVideo = {
       id: numericId(v.aweme_id, v.item_id, v.id) ?? "",
-      desc: v.title ?? v.desc ?? "",
+      desc: v.title ?? v.desc ?? v.content_desc ?? "",
       createTime: v.create_time,
       playUrl: v.play ?? v.wmplay ?? null,
       musicTitle: music?.title ?? null,
       musicAuthor: music?.author ?? null,
-      musicPlayUrl: resolveMusicUrl(music),
+      musicPlayUrl: pickMusicUrl(v),
       stats: {
         plays: v.play_count ?? 0,
         likes: v.digg_count ?? 0,
