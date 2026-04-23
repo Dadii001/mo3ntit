@@ -126,7 +126,13 @@ export async function runDiscovery(input: DiscoveryInput, emit: Emit): Promise<v
         emit({
           type: "log",
           level: "info",
-          message: `[${username}] signature: "${signature.title ?? "(untitled)"}" by ${signature.author ?? "?"} — used ${signature.useCount}×, ${isOriginal ? "likely own" : "not confirmed as own"}`,
+          message: `[${username}] signature: "${signature.title ?? "(untitled)"}" by ${signature.author ?? "?"} — id=${signature.musicId ?? "none"}, used ${signature.useCount}×, ${isOriginal ? "likely own" : "not confirmed as own"}`,
+        });
+      } else {
+        emit({
+          type: "log",
+          level: "warn",
+          message: `[${username}] no signature song found in recent posts — falling back to hashtag video's song`,
         });
       }
 
@@ -210,6 +216,14 @@ export async function runDiscovery(input: DiscoveryInput, emit: Emit): Promise<v
       });
 
       const created = await createArtistItem(artist);
+      const mondayLink = artist.song.musicId
+        ? `https://www.tiktok.com/music/${artist.song.musicId}`
+        : artist.song.url ?? "(none)";
+      emit({
+        type: "log",
+        level: "info",
+        message: `[${username}] → Monday: song="${artist.song.title ?? "(untitled)"}" link=${mondayLink}`,
+      });
       emit({ type: "saved", username: artist.username, mondayId: created.id });
       saved++;
     } catch (e) {

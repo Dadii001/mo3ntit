@@ -58,11 +58,20 @@ export async function getHashtagInfo(hashtag: string): Promise<HashtagInfo> {
 
 type MusicField = {
   id?: string | number;
+  mid?: string | number;
+  music_id?: string | number;
   title?: string;
   author?: string;
   play?: string;
   play_url?: string | { uri_list?: string[] };
 } | null;
+
+function extractMusicId(m: MusicField | undefined): string | null {
+  if (!m) return null;
+  const raw = m.id ?? m.mid ?? m.music_id;
+  if (raw === undefined || raw === null) return null;
+  return String(raw);
+}
 
 type RawVideo = {
   aweme_id?: string;
@@ -177,7 +186,8 @@ export function pickSignatureSong(
   for (const v of videos) {
     const m = v.music ?? v.music_info;
     if (!m) continue;
-    const key = String(m.id ?? m.title ?? "").trim();
+    const extractedId = extractMusicId(m);
+    const key = (extractedId ?? m.title ?? "").trim();
     if (!key) continue;
     const own = isOwnSong({ title: m.title, author: m.author }, artist);
     const vid = v.aweme_id ?? v.video_id ?? "";
@@ -190,7 +200,7 @@ export function pickSignatureSong(
       if (!existing.playUrl) existing.playUrl = resolveMusicUrl(m);
     } else {
       byKey.set(key, {
-        musicId: m.id ? String(m.id) : null,
+        musicId: extractedId,
         title: m.title ?? null,
         author: m.author ?? null,
         playUrl: resolveMusicUrl(m),
