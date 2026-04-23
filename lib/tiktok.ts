@@ -158,6 +158,43 @@ export async function getUserPosts(userId: string, count = 15): Promise<RawVideo
   return data.videos ?? data.aweme_list ?? data.items ?? [];
 }
 
+export async function getUserFollowing(userId: string, count = 50): Promise<Array<{
+  uid: string;
+  uniqueId: string;
+  nickname: string;
+}>> {
+  type Resp = {
+    followings?: Array<{ id?: string; uniqueId?: string; nickname?: string }>;
+    users?: Array<{ id?: string; uniqueId?: string; nickname?: string }>;
+  };
+  try {
+    const data = await rapid<Resp>("/user/following", {
+      user_id: userId,
+      count: String(count),
+      cursor: "0",
+    });
+    const list = data.followings ?? data.users ?? [];
+    return list
+      .filter((u) => u.uniqueId)
+      .map((u) => ({ uid: u.id ?? "", uniqueId: u.uniqueId ?? "", nickname: u.nickname ?? "" }));
+  } catch {
+    return [];
+  }
+}
+
+export async function getMusicPosts(musicId: string, count = 30): Promise<RawVideo[]> {
+  try {
+    const data = await rapid<{ videos?: RawVideo[] }>("/music/posts", {
+      music_id: musicId,
+      count: String(count),
+      cursor: "0",
+    });
+    return data.videos ?? [];
+  } catch {
+    return [];
+  }
+}
+
 export async function getMusicInfo(musicUrl: string): Promise<{
   id?: string;
   title?: string;

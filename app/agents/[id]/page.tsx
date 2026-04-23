@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { ContinuousPanel } from "@/components/continuous-panel";
 import { DiscoveryRunner } from "@/components/discovery-runner";
 import { getAgent } from "@/lib/agents/registry";
 
@@ -22,7 +23,10 @@ export default async function AgentPage({ params }: { params: Promise<{ id: stri
       </div>
 
       {agent.id === "discovery" ? (
-        <DiscoveryRunner />
+        <div className="space-y-6">
+          <ContinuousPanel />
+          <DiscoveryRunner />
+        </div>
       ) : (
         <div className="card p-8 text-center">
           <p className="text-neutral-400">This agent isn&apos;t running yet. Its tools and slot are reserved.</p>
