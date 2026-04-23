@@ -126,6 +126,16 @@ export async function runDiscovery(input: DiscoveryInput, emit: Emit): Promise<v
         level: "info",
         message: `[${username}] fetched ${recentPosts.length} posts, ${withMusic.length} with music metadata`,
       });
+      if (withMusic.length > 0) {
+        const sample = withMusic[0];
+        const m = sample.music ?? sample.music_info ?? {};
+        const musicKeys = Object.keys(m).join(",");
+        emit({
+          type: "log",
+          level: "info",
+          message: `[${username}] sample music keys: [${musicKeys}] title="${(m as { title?: string }).title ?? "?"}" author="${(m as { author?: string }).author ?? "?"}"`,
+        });
+      }
       const signature = pickSignatureSong(
         { uniqueId: author.uniqueId, nickname: author.nickname },
         recentPosts,

@@ -7,7 +7,15 @@
       "Bash(git --version)",
       "Bash(npm install *)",
       "Bash(npm view *)",
-      "Bash(npm run *)"
+      "Bash(npm run *)",
+      "Bash(powershell -Command 'Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }; Write-Output '\\\\''port 3000 cleared'\\\\''')",
+      "Bash(powershell -Command 'Stop-Process -Id 17664 -Force -ErrorAction SilentlyContinue; Start-Sleep -Seconds 1; Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess | Sort-Object -Unique | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }; Write-Output '\\\\''port 3000 cleared'\\\\''')",
+      "Bash(powershell -Command 'Get-Process | Where-Object { $_.Path -and $_.Path -match '\\\\''node'\\\\'' } | Where-Object { $_.CommandLine -match '\\\\''next|mo3ntit'\\\\'' -or $_.Id -eq 25204 } | Stop-Process -Force -ErrorAction SilentlyContinue; Get-NetTCPConnection -LocalPort 3000,3001 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess | Sort-Object -Unique | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }; Start-Sleep -Seconds 2; Get-NetTCPConnection -LocalPort 3000,3001 -ErrorAction SilentlyContinue | Format-Table LocalPort, State, OwningProcess; Write-Output '\\\\''done'\\\\''')",
+      "Bash(powershell -Command \"Stop-Process -Id 18352 -Force -ErrorAction SilentlyContinue; Start-Sleep -Seconds 3; Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue | Format-Table LocalPort, State, OwningProcess; Write-Output 'check-done'\")",
+      "Bash(powershell -Command 'Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess | Sort-Object -Unique | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }; Start-Sleep -Seconds 3; Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue | Format-Table LocalPort, State, OwningProcess; Write-Output '\\\\''done'\\\\''')",
+      "Bash(env)",
+      "Bash(unset ANTHROPIC_API_KEY)",
+      "Bash(unset ANTHROPIC_BASE_URL)"
     ]
   }
 }

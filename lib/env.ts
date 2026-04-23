@@ -1,11 +1,12 @@
 function required(name: string): string {
-  const v = process.env[name];
+  const v = process.env[name]?.trim();
   if (!v) throw new Error(`Missing env var: ${name}`);
   return v;
 }
 
 function optional(name: string): string | undefined {
-  return process.env[name] || undefined;
+  const v = process.env[name]?.trim();
+  return v || undefined;
 }
 
 export const env = {
