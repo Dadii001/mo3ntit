@@ -17,7 +17,7 @@ type State = {
   hashtags: Array<{ hashtag: string; lastRunAt: number; lastSavedCount: number; totalRuns: number }>;
 };
 
-const TICK_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+const TICK_INTERVAL_MS = 60 * 1000; // browser-side poll for UI refresh only
 
 export function ContinuousPanel() {
   const [state, setState] = useState<State | null>(null);
@@ -93,9 +93,9 @@ export function ContinuousPanel() {
         <div>
           <h3 className="font-semibold">Continuous mode</h3>
           <p className="text-xs text-neutral-400 mt-1">
-            Runs one tick every 5 min while this tab is open.
+            Back-to-back operation: as soon as one artist is enriched + saved, the next search starts.
             <br />
-            For 24/7 behavior without the dashboard, configure Vercel Cron (see <span className="mono">vercel.json</span>).
+            Runs server-side — you can close this tab. Stops only if the dev server stops.
           </p>
         </div>
         <label className="inline-flex items-center gap-2 cursor-pointer">
