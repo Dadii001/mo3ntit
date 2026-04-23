@@ -32,33 +32,10 @@ async function gql<T>(query: string, variables: Record<string, unknown> = {}): P
   return body.data as T;
 }
 
-function slugifyTitle(title: string): string {
-  return title
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^\w\s-]/g, "")
-    .trim()
-    .replace(/\s+/g, "-")
-    .replace(/-+/g, "-")
-    .slice(0, 60);
-}
-
-function tiktokMusicUrl(musicId: string | null, title: string | null): string | null {
-  if (!musicId) return null;
-  const slug = title ? slugifyTitle(title) : "";
-  return slug
-    ? `https://www.tiktok.com/music/${slug}-${musicId}`
-    : `https://www.tiktok.com/music/${musicId}`;
-}
-
 export async function createArtistItem(
   artist: ArtistProfile,
 ): Promise<{ id: string; name: string }> {
-  const songLink =
-    tiktokMusicUrl(artist.song.musicId, artist.song.title) ??
-    artist.song.url ??
-    artist.topVideo.playUrl ??
-    "";
+  const songLink = artist.song.videoUrl ?? artist.song.url ?? "";
 
   const columnValues = {
     [MONDAY_COLUMNS.tiktokProfile]: artist.profileUrl,

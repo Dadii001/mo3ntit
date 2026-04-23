@@ -8,6 +8,7 @@ import {
   getUserPosts,
   pickSignatureSong,
   tiktokProfileUrl,
+  tiktokVideoUrl,
   videosFromHashtagPosts,
 } from "../tiktok";
 import type { ArtistProfile, DiscoveryEvent, SongAnalysis, TikTokVideo } from "../types";
@@ -136,8 +137,14 @@ export async function runDiscovery(input: DiscoveryInput, emit: Emit): Promise<v
         });
       }
 
+      const signatureVideoId = signature?.videoIds.find((id) => id) ?? video.id;
+      const signatureVideoUrl = signatureVideoId
+        ? tiktokVideoUrl(author.uniqueId, signatureVideoId)
+        : null;
+
       let song: SongAnalysis = {
         musicId: signature?.musicId ?? null,
+        videoUrl: signatureVideoUrl,
         url: songUrl,
         title: songTitle,
         author: songAuthor,
@@ -216,13 +223,10 @@ export async function runDiscovery(input: DiscoveryInput, emit: Emit): Promise<v
       });
 
       const created = await createArtistItem(artist);
-      const mondayLink = artist.song.musicId
-        ? `https://www.tiktok.com/music/${artist.song.musicId}`
-        : artist.song.url ?? "(none)";
       emit({
         type: "log",
         level: "info",
-        message: `[${username}] → Monday: song="${artist.song.title ?? "(untitled)"}" link=${mondayLink}`,
+        message: `[${username}] → Monday: song="${artist.song.title ?? "(untitled)"}" link=${artist.song.videoUrl ?? artist.song.url ?? "(none)"}`,
       });
       emit({ type: "saved", username: artist.username, mondayId: created.id });
       saved++;
