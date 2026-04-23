@@ -130,12 +130,16 @@ export async function getHashtagPosts(
 export type RawVideoExport = RawVideo;
 
 export async function getUserPosts(uniqueId: string, count = 15): Promise<RawVideo[]> {
-  const data = await rapid<{ videos?: RawVideo[] }>("/user/posts", {
+  const data = await rapid<{
+    videos?: RawVideo[];
+    aweme_list?: RawVideo[];
+    items?: RawVideo[];
+  }>("/user/posts", {
     unique_id: uniqueId,
     count: String(count),
     cursor: "0",
   });
-  return data.videos ?? [];
+  return data.videos ?? data.aweme_list ?? data.items ?? [];
 }
 
 function normalize(s: string): string {

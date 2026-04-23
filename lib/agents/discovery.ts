@@ -110,7 +110,22 @@ export async function runDiscovery(input: DiscoveryInput, emit: Emit): Promise<v
       }));
 
       emit({ type: "log", level: "info", message: `[${username}] pulling recent posts to find signature song…` });
-      const recentPosts = await getUserPosts(username, 15).catch(() => []);
+      let recentPosts: Awaited<ReturnType<typeof getUserPosts>> = [];
+      try {
+        recentPosts = await getUserPosts(username, 15);
+      } catch (e) {
+        emit({
+          type: "log",
+          level: "warn",
+          message: `[${username}] /user/posts failed: ${(e as Error).message}`,
+        });
+      }
+      const withMusic = recentPosts.filter((p) => p.music ?? p.music_info);
+      emit({
+        type: "log",
+        level: "info",
+        message: `[${username}] fetched ${recentPosts.length} posts, ${withMusic.length} with music metadata`,
+      });
       const signature = pickSignatureSong(
         { uniqueId: author.uniqueId, nickname: author.nickname },
         recentPosts,
