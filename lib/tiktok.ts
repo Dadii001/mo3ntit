@@ -73,9 +73,20 @@ function extractMusicId(m: MusicField | undefined): string | null {
   return String(raw);
 }
 
+function numericId(...candidates: (string | number | undefined)[]): string | null {
+  for (const c of candidates) {
+    if (c === undefined || c === null) continue;
+    const s = String(c);
+    if (/^\d{15,}$/.test(s)) return s;
+  }
+  return null;
+}
+
 type RawVideo = {
-  aweme_id?: string;
+  aweme_id?: string | number;
   video_id?: string;
+  item_id?: string | number;
+  id?: string | number;
   title?: string;
   desc?: string;
   create_time: number;
@@ -190,7 +201,8 @@ export function pickSignatureSong(
     const key = (extractedId ?? m.title ?? "").trim();
     if (!key) continue;
     const own = isOwnSong({ title: m.title, author: m.author }, artist);
-    const vid = v.aweme_id ?? v.video_id ?? "";
+    const vid = numericId(v.aweme_id, v.item_id, v.id);
+    if (!vid) continue;
     const plays = v.play_count ?? 0;
     const existing = byKey.get(key);
     if (existing) {
@@ -277,7 +289,7 @@ export function videosFromHashtagPosts(
     if (seenAuthors.has(uniqueId) || byAuthor.has(uniqueId)) continue;
     const music = v.music ?? v.music_info ?? null;
     const video: TikTokVideo = {
-      id: v.aweme_id ?? v.video_id ?? "",
+      id: numericId(v.aweme_id, v.item_id, v.id) ?? "",
       desc: v.title ?? v.desc ?? "",
       createTime: v.create_time,
       playUrl: v.play ?? v.wmplay ?? null,
