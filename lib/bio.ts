@@ -56,6 +56,18 @@ Return the brief only, no preamble.`;
   return (resp.content[0] as Anthropic.TextBlock).text.trim();
 }
 
+function isMeaninglessSongTitle(title: string | null): boolean {
+  if (!title) return true;
+  const t = title.toLowerCase().trim();
+  return (
+    t === "original sound" ||
+    t.startsWith("original sound -") ||
+    t.startsWith("original sound by") ||
+    t.startsWith("original sound ·") ||
+    /^original\s+sound\s*[-–—·|]/.test(t)
+  );
+}
+
 export async function buildSongBrief(args: {
   musicTitle: string | null;
   musicAuthor: string | null;
@@ -67,9 +79,14 @@ export async function buildSongBrief(args: {
   totalPlays: number;
   recentVideoCount: number;
 }): Promise<string> {
+  const untitled = isMeaninglessSongTitle(args.musicTitle);
+  const titleLine = untitled
+    ? "Title: (none — TikTok's default 'original sound' placeholder. DO NOT reference the title. The song has no known name.)"
+    : `Title: ${args.musicTitle}`;
+
   const prompt = `Write a detailed 4-5 sentence A&R brief on this song. Cover: (1) genre + sub-genre cues, (2) energy and production polish signals, (3) lyrical theme and mood from the transcript, (4) vocal / instrumental standout traits if detectable, (5) commercial positioning. Be specific — no filler, no hedging about "without more data".
 
-Title: ${args.musicTitle ?? "(untitled original sound)"}
+${titleLine}
 Credited artist: ${args.musicAuthor ?? "(unknown)"}
 Status: ${args.isOriginal ? "Confirmed original by this artist" : "Usage match unclear — may be cover, collab, or external track"}
 Signature usage: this artist used this track in ${args.useCount} of their last ${args.recentVideoCount} posts (total ${args.totalPlays.toLocaleString()} plays on those posts)
@@ -79,6 +96,8 @@ Lyrics transcript:
 """
 ${args.transcript ? args.transcript.slice(0, 3000) : "(no transcript — audio-only instrumental or transcription unavailable)"}
 """
+
+${untitled ? "IMPORTANT: The song title is just TikTok's 'original sound' placeholder — NEVER mention or reference the title in the brief. Focus on what the transcript and usage reveal." : ""}
 
 Return the brief only, no preamble, no bullet points — prose.`;
   const resp = await anthropic().messages.create({
@@ -97,6 +116,7 @@ RULES (non-negotiable):
 - Natural + a little funny. A dry observation, a self-aware aside, a light joke — NOT try-hard, NOT corporate, NOT "your vibe is immaculate" energy. Make them smirk, not roll their eyes.
 - Use the ARTIST BRIEF to calibrate tone (match their energy — if the artist is moody, don't be chipper; if they're chaotic, lean in).
 - Use the SONG BRIEF to pick ONE specific detail to riff on — something only someone who actually listened would notice.
+- NEVER reference the song's title or name. If the song has no real name ("original sound"), never mention one. Riff on the sound, a lyric, the mood — not a title.
 - End with a casual question or hook that's low-effort to answer. Or end with an observation that invites a reply. Avoid "hop on a call", "let's chat", "LFG".
 - NO emojis. NO "hey"/"hi" openers. NO generic compliments ("amazing/incredible/dope/fire/slaps"). NO exclamation marks unless sarcastic.
 - Don't pitch anything. Don't mention labels, signing, contracts, or yourself as a scout. Just be a human who liked the song.
