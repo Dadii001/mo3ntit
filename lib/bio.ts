@@ -93,7 +93,7 @@ export async function buildCustomDm(args: { artistBrief: string; songBrief: stri
   const prompt = `Write a DM to an indie artist that sounds like a real person who genuinely stumbled onto their stuff.
 
 RULES (non-negotiable):
-- 1-2 sentences. Three only if the joke needs it. Short wins.
+- ONE sentence. Two only if the second is a 4-word kicker. Under 25 words total. Hard cap.
 - Natural + a little funny. A dry observation, a self-aware aside, a light joke — NOT try-hard, NOT corporate, NOT "your vibe is immaculate" energy. Make them smirk, not roll their eyes.
 - Use the ARTIST BRIEF to calibrate tone (match their energy — if the artist is moody, don't be chipper; if they're chaotic, lean in).
 - Use the SONG BRIEF to pick ONE specific detail to riff on — something only someone who actually listened would notice.
@@ -110,7 +110,7 @@ ${args.songBrief}
 Return the DM text only, nothing else.`;
   const resp = await anthropic().messages.create({
     model: MODEL,
-    max_tokens: 200,
+    max_tokens: 100,
     messages: [{ role: "user", content: prompt }],
   });
   return (resp.content[0] as Anthropic.TextBlock).text.trim();
