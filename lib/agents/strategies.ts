@@ -1,7 +1,8 @@
-import { listExistingArtists, listRecentArtists, MONDAY_COLUMNS } from "../monday";
+import { listRecentArtists, MONDAY_COLUMNS } from "../monday";
 import {
   collectHashtagCandidates,
   enrichAndSaveArtist,
+  getExistingAccounts,
   type Bounds,
   type EnrichResult,
 } from "./discovery";
@@ -52,7 +53,7 @@ export async function runHashtagStrategy(
   const hashtag = cursor?.hashtag ?? state.hashtags[0].hashtag;
   emit({ type: "log", level: "info", message: `[hashtag-rotation] picked #${hashtag}` });
 
-  const existing = await listExistingArtists();
+  const existing = await getExistingAccounts();
   const candidates = await collectHashtagCandidates(hashtag, 2, existing, emit);
   emit({ type: "log", level: "info", message: `collected ${candidates.size} candidates, enriching up to ${maxPerTick}` });
 
@@ -93,7 +94,7 @@ export async function runRelatedFollowingStrategy(
   const following = await getUserFollowing(author.uid, 30);
   emit({ type: "log", level: "info", message: `[related-following] ${following.length} followings to scan` });
 
-  const existing = await listExistingArtists();
+  const existing = await getExistingAccounts();
   const results: EnrichResult[] = [];
   let saved = 0;
   for (const u of following) {
@@ -143,7 +144,7 @@ export async function runMusicExploreStrategy(
     new Set([author.uniqueId.toLowerCase()]),
   ).byAuthor;
 
-  const existing = await listExistingArtists();
+  const existing = await getExistingAccounts();
   const results: EnrichResult[] = [];
   let saved = 0;
   for (const [username, video] of byAuthor) {

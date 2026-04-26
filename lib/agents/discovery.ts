@@ -1,6 +1,7 @@
 import { analyzeAudio } from "../audio";
 import { analyzeBio, buildArtistBrief, buildCustomDm, buildSongBrief } from "../bio";
 import { createArtistItem, listExistingArtists } from "../monday";
+import { isSupabaseConfigured, listSupabaseAccounts, saveArtistToSupabase } from "../supabase";
 import {
   getHashtagInfo,
   getHashtagPosts,
@@ -199,6 +200,24 @@ export async function enrichAndSaveArtist(
       level: "info",
       message: `[${username}] → Monday: song="${artist.song.title ?? "(untitled)"}" link=${artist.song.videoUrl ?? "(none)"}`,
     });
+
+    if (isSupabaseConfigured()) {
+      try {
+        const sb = await saveArtistToSupabase(artist, created.id);
+        emit({
+          type: "log",
+          level: "info",
+          message: `[${username}] → Supabase: row id=${sb?.id ?? "?"}`,
+        });
+      } catch (e) {
+        emit({
+          type: "log",
+          level: "warn",
+          message: `[${username}] Supabase mirror failed: ${(e as Error).message}`,
+        });
+      }
+    }
+
     emit({ type: "saved", username: artist.username, mondayId: created.id });
     return { status: "saved", mondayId: created.id, username: artist.username };
   } catch (e) {
@@ -260,6 +279,17 @@ export async function collectHashtagCandidates(
   return candidates;
 }
 
+export async function getExistingAccounts(): Promise<Set<string>> {
+  const [monday, supabase] = await Promise.all([
+    listExistingArtists().catch(() => new Set<string>()),
+    isSupabaseConfigured() ? listSupabaseAccounts().catch(() => new Set<string>()) : Promise.resolve(new Set<string>()),
+  ]);
+  const merged = new Set<string>();
+  for (const a of monday) merged.add(a);
+  for (const a of supabase) merged.add(a);
+  return merged;
+}
+
 export async function runDiscovery(input: DiscoveryInput, emit: Emit): Promise<void> {
   const maxPages = input.maxPages ?? 5;
   const maxArtists = input.maxArtists ?? 10;
@@ -270,9 +300,9 @@ export async function runDiscovery(input: DiscoveryInput, emit: Emit): Promise<v
 
   emit({ type: "log", level: "info", message: `Starting discovery for #${input.hashtag}` });
 
-  emit({ type: "log", level: "info", message: "Fetching already-saved artists from Monday…" });
-  const existing = await listExistingArtists();
-  emit({ type: "log", level: "info", message: `${existing.size} artists already in board — will skip.` });
+  emit({ type: "log", level: "info", message: "Fetching already-saved artists (Monday + Supabase)…" });
+  const existing = await getExistingAccounts();
+  emit({ type: "log", level: "info", message: `${existing.size} artists already saved — will skip.` });
 
   const candidates = await collectHashtagCandidates(input.hashtag, maxPages, existing, emit);
   emit({
