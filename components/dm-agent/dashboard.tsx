@@ -107,12 +107,9 @@ export function DmAgentDashboard({ initialPrompts }: Props) {
   }, []);
 
   function pushResult(color: ResultColor, title: string, detail: string) {
-    setResults((prev) =>
-      [
-        { id: `${Date.now()}-${Math.random()}`, color, title, detail, timestamp: Date.now() },
-        ...prev,
-      ].slice(0, 50),
-    );
+    setResults([
+      { id: `${Date.now()}-${Math.random()}`, color, title, detail, timestamp: Date.now() },
+    ]);
   }
 
   const activePrompts = prompts.filter((p) => p.is_active);
