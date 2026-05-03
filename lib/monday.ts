@@ -110,6 +110,25 @@ export type MondayArtistRow = {
   sentDate: string;
 };
 
+export async function updateMondayStatus(itemId: string, label: string): Promise<void> {
+  const query = `
+    mutation ($boardId: ID!, $itemId: ID!, $columnId: String!, $value: String!) {
+      change_simple_column_value(
+        board_id: $boardId,
+        item_id: $itemId,
+        column_id: $columnId,
+        value: $value
+      ) { id }
+    }
+  `;
+  await gql(query, {
+    boardId: env.mondayBoardId(),
+    itemId,
+    columnId: MONDAY_COLUMNS.status,
+    value: label,
+  });
+}
+
 export async function listRecentArtists(limit = 50): Promise<MondayArtistRow[]> {
   const query = `
     query ($boardId: [ID!], $limit: Int!) {

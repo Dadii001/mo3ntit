@@ -23,9 +23,9 @@ export const AGENTS: AgentMeta[] = [
     id: "first-dm",
     name: "First DM Agent",
     description:
-      "Sends the opening DM to new artists in the Monday board and manages the reply thread until a qualified lead emerges.",
-    status: "coming-soon",
-    tools: ["tiktok.dm", "claude.text", "monday.update"],
+      "Picks the best mo3ntit, drafts a human-feeling opener (A/B-tested across prompt angles), reads inbox + conversation screenshots, and drafts replies grounded in the artist's full history.",
+    status: "live",
+    tools: ["claude.match", "claude.text", "claude.vision", "supabase.conversations"],
     tagline: "Open the conversation",
   },
   {

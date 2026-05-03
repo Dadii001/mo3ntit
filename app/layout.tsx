@@ -18,7 +18,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           </Link>
           <nav className="flex gap-4 text-sm text-neutral-400">
             <Link href="/" className="hover:text-white">Agents</Link>
+            <Link href="/agents/first-dm" className="hover:text-white">DM Agent</Link>
             <Link href="/board" className="hover:text-white">Board</Link>
+            <Link href="/mo3ntitin" className="hover:text-white">Mo3ntitin</Link>
           </nav>
         </header>
         <main className="px-6 py-6 max-w-[1200px] mx-auto">{children}</main>

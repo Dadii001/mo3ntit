@@ -1,0 +1,13 @@
+import { NextResponse } from "next/server";
+import { listRecentConversations } from "@/lib/supabase";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+export async function GET() {
+  try {
+    return NextResponse.json(await listRecentConversations(40));
+  } catch (e) {
+    return NextResponse.json({ error: (e as Error).message }, { status: 500 });
+  }
+}

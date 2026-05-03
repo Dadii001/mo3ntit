@@ -1,74 +1,51 @@
-import { listRecentArtists } from "@/lib/monday";
+import Link from "next/link";
+import { BoardCards } from "@/components/dm-agent/board-cards";
+import { listAssignedQueue } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
 
 export default async function BoardPage() {
-  let artists: Awaited<ReturnType<typeof listRecentArtists>> = [];
+  let queue: Awaited<ReturnType<typeof listAssignedQueue>> = [];
   let error: string | null = null;
   try {
-    artists = await listRecentArtists(50);
+    queue = await listAssignedQueue();
   } catch (e) {
     error = (e as Error).message;
   }
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Board</h1>
-        <p className="text-sm text-neutral-400 mt-1">
-          Live view of the Monday board. Artists saved by the discovery agent land here.
-        </p>
+    <div className="space-y-4">
+      <div className="flex items-end justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Board</h1>
+          <p className="text-sm text-neutral-400 mt-1">
+            Pre-assigned artists waiting for their first DM. Click any block on a card to copy
+            it — TikTok link, mo3ntit handle, or the full DM.
+          </p>
+        </div>
+        <Link href="/agents/first-dm" className="btn">
+          Open DM Agent
+        </Link>
       </div>
 
       {error ? (
         <div className="card p-5 text-sm">
-          <div className="text-red-400 font-semibold mb-1">Monday fetch failed</div>
+          <div className="text-red-400 font-semibold mb-1">Supabase fetch failed</div>
           <div className="mono text-neutral-400">{error}</div>
         </div>
-      ) : (
-        <div className="card overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-[var(--color-surface)] text-neutral-400 text-left">
-              <tr>
-                <th className="p-3 font-medium">Name</th>
-                <th className="p-3 font-medium">Handle</th>
-                <th className="p-3 font-medium">Status</th>
-                <th className="p-3 font-medium">Sent</th>
-                <th className="p-3 font-medium"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {artists.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="p-6 text-center text-neutral-500">
-                    No artists yet. Run the Discovery Agent.
-                  </td>
-                </tr>
-              ) : (
-                artists.map((a) => (
-                  <tr key={a.id} className="border-t border-[var(--color-border)]">
-                    <td className="p-3">{a.name}</td>
-                    <td className="p-3 mono">@{a.account}</td>
-                    <td className="p-3">{a.status || "—"}</td>
-                    <td className="p-3 text-neutral-400">{a.sentDate || "—"}</td>
-                    <td className="p-3 text-right">
-                      {a.profileUrl && (
-                        <a
-                          className="btn-ghost"
-                          href={a.profileUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          TikTok
-                        </a>
-                      )}
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+      ) : queue.length === 0 ? (
+        <div className="card p-8 text-center text-sm text-neutral-500">
+          Queue is empty. Open the{" "}
+          <Link href="/agents/first-dm" className="underline">
+            DM Agent
+          </Link>{" "}
+          and click <span className="mono">Pre-assign next 100</span> to fill it.
         </div>
+      ) : (
+        <>
+          <div className="text-xs text-neutral-500">{queue.length} pre-assigned</div>
+          <BoardCards queue={queue} />
+        </>
       )}
     </div>
   );
