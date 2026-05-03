@@ -195,6 +195,7 @@ export type ArtistRow = {
   first_dm_sent_at: string | null;
   last_prompt_id: string | null;
   current_dm: string | null;
+  funnel_stage: string | null;
   created_at: string;
 };
 
@@ -409,6 +410,18 @@ export const STATUS_LABELS: Record<ArtistStatus, string> = {
   won: "Won",
   lost: "Lost",
 };
+
+export async function updateArtistFunnelStage(
+  artistId: string,
+  stage: string,
+): Promise<void> {
+  const c = requireClient();
+  const { error } = await c
+    .from("artists")
+    .update({ funnel_stage: stage })
+    .eq("id", artistId);
+  if (error) throw new Error(`updateArtistFunnelStage: ${error.message}`);
+}
 
 export async function updateArtistStatus(
   artistId: string,

@@ -1,14 +1,20 @@
 import { NextResponse } from "next/server";
+import { updateMondayStatus } from "@/lib/monday";
 import {
   analyzeConversationScreenshot,
   createArtistFromHandle,
   draftReply,
+  FUNNEL_STAGES,
+  type FunnelStage,
 } from "@/lib/dm-agent";
 import {
   findArtistByHandle,
   getMo3ntitById,
   listConversation,
   logConversation,
+  STATUS_LABELS,
+  updateArtistFunnelStage,
+  updateArtistStatus,
   type ArtistRow,
 } from "@/lib/supabase";
 
@@ -92,18 +98,52 @@ export async function POST(req: Request) {
     const mo3ntit = mo3ntitIdToUse ? await getMo3ntitById(mo3ntitIdToUse) : null;
 
     const fullHistory = await listConversation(artist.id);
-    const draft = await draftReply({
+    const currentStage = (FUNNEL_STAGES as readonly string[]).includes(
+      artist.funnel_stage ?? "",
+    )
+      ? (artist.funnel_stage as FunnelStage)
+      : ("rapport" as FunnelStage);
+    const draftResult = await draftReply({
       artist,
       mo3ntit,
+      stage: currentStage,
       history: fullHistory.map((m) => ({ direction: m.direction, body: m.body })),
       latestInbound,
     });
 
+    let stageAdvanced = false;
+    let statusBumped = false;
+    if (draftResult.stageAfter !== currentStage) {
+      await updateArtistFunnelStage(artist.id, draftResult.stageAfter);
+      stageAdvanced = true;
+      // Reaching closing means the artist is showing real interest — flag for offer.
+      if (draftResult.stageAfter === "closing" && artist.status !== "needs_offer") {
+        try {
+          await updateArtistStatus(artist.id, "needs_offer");
+          if (artist.monday_id) {
+            await updateMondayStatus(artist.monday_id, STATUS_LABELS.needs_offer);
+          }
+          statusBumped = true;
+        } catch {
+          // best-effort — don't break the draft response
+        }
+      }
+    }
+
     return NextResponse.json({
       analysis,
-      artist,
+      artist: {
+        ...artist,
+        funnel_stage: draftResult.stageAfter,
+        status: statusBumped ? "needs_offer" : artist.status,
+      },
       mo3ntit,
-      draft,
+      draft: draftResult.reply,
+      stageBefore: currentStage,
+      stageAfter: draftResult.stageAfter,
+      stageRationale: draftResult.rationale,
+      stageAdvanced,
+      statusBumped,
       history: fullHistory,
       createdArtist,
     });

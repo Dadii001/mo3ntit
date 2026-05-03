@@ -18,6 +18,14 @@ const STATUS_LABELS: Record<ArtistStatus, string> = {
   lost: "Lost",
 };
 
+const FUNNEL_STAGE_LABELS: Record<string, string> = {
+  hook: "Hook",
+  rapport: "Rapport",
+  qualify: "Qualify",
+  pitch: "Pitch",
+  closing: "Closing",
+};
+
 const STATUS_PILL: Record<ArtistStatus, string> = {
   new: "pill-live",
   sent: "pill-soon",
@@ -317,6 +325,11 @@ export function DmAgentDashboard({ initialPrompts }: Props) {
         warning?: string;
         note?: string;
         createdArtist?: boolean;
+        stageBefore?: string;
+        stageAfter?: string;
+        stageRationale?: string;
+        stageAdvanced?: boolean;
+        statusBumped?: boolean;
       };
       setConvoResult({ analysis: j.analysis, artistFound: !!j.artist });
 
@@ -341,12 +354,23 @@ export function DmAgentDashboard({ initialPrompts }: Props) {
           });
         }
         setDm(j.draft);
+        const stageNote = j.stageAdvanced
+          ? `${FUNNEL_STAGE_LABELS[j.stageBefore ?? ""] ?? j.stageBefore} → ${
+              FUNNEL_STAGE_LABELS[j.stageAfter ?? ""] ?? j.stageAfter
+            }${j.statusBumped ? " · flagged Needs offer" : ""}`
+          : `Stage ${FUNNEL_STAGE_LABELS[j.stageAfter ?? ""] ?? j.stageAfter}`;
         pushResult(
-          "blue",
-          `Reply drafted for @${j.artist.account}`,
-          j.draft.length > 140 ? `${j.draft.slice(0, 140)}...` : j.draft,
+          j.statusBumped ? "amber" : "blue",
+          `Reply drafted for @${j.artist.account} · ${stageNote}`,
+          `${j.draft.length > 140 ? j.draft.slice(0, 140) + "..." : j.draft}${
+            j.stageRationale ? ` — ${j.stageRationale}` : ""
+          }`,
         );
-        setTodoNext(`Review the draft, copy it, send it, then click "Mark sent".`);
+        setTodoNext(
+          j.statusBumped
+            ? `Send the reply, then send the offer link manually — status is already Needs offer.`
+            : `Review the draft, copy it, send it, then click "Mark sent".`,
+        );
       } else if (j.warning) {
         pushResult("amber", "Could not match artist", j.warning);
         setTodoNext("Find this artist manually or add them to the DB.");
@@ -489,9 +513,16 @@ function ArtistColumn({
                   @{loaded.artist.account}
                 </div>
               </div>
-              <span className={`pill shrink-0 ${STATUS_PILL[status]}`}>
-                {STATUS_LABELS[status]}
-              </span>
+              <div className="flex flex-col items-end gap-1 shrink-0">
+                <span className={`pill ${STATUS_PILL[status]}`}>
+                  {STATUS_LABELS[status]}
+                </span>
+                {loaded.artist.funnel_stage && (
+                  <span className="text-[10px] mono text-neutral-500">
+                    funnel: {FUNNEL_STAGE_LABELS[loaded.artist.funnel_stage] ?? loaded.artist.funnel_stage}
+                  </span>
+                )}
+              </div>
             </div>
           </CopyOnClick>
 

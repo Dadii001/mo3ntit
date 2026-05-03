@@ -128,7 +128,8 @@ alter table public.artists
   add column if not exists selected_mo3ntit_id uuid references public.mo3ntitin(id) on delete set null,
   add column if not exists first_dm_sent_at timestamptz,
   add column if not exists last_prompt_id uuid references public.dm_prompts(id) on delete set null,
-  add column if not exists current_dm text;
+  add column if not exists current_dm text,
+  add column if not exists funnel_stage text default 'hook';
 
 create index if not exists artists_first_dm_sent_at_idx
   on public.artists(first_dm_sent_at);

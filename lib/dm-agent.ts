@@ -211,39 +211,112 @@ Return JSON only:
   return extractJson<ConversationAnalysis>(text);
 }
 
+export const FUNNEL_STAGES = ["hook", "rapport", "qualify", "pitch", "closing"] as const;
+export type FunnelStage = (typeof FUNNEL_STAGES)[number];
+
+export const FUNNEL_STAGE_LABELS: Record<FunnelStage, string> = {
+  hook: "Hook",
+  rapport: "Rapport",
+  qualify: "Qualify",
+  pitch: "Pitch",
+  closing: "Closing",
+};
+
+const FUNNEL_DESCRIPTION = `You are running a 5-stage conversion funnel via TikTok DMs to indie artists. Every reply should subtly move the conversation toward the next stage. The artist must FEEL: special, talented, real potential to go viral — they just need the right promo. Voice: human, casual, peer-to-peer. NEVER salesy or corporate. Keep messages short — one idea, one sentence usually. No emojis unless they used one first. Match their energy.
+
+Stage 1 — HOOK (already done; this was the first DM).
+
+Stage 2 — RAPPORT
+  Goal: get them comfortable, react to what they said, find common ground.
+  Do: react warmly to whatever they shared. Drop a small genuine compliment about their music/vibe ("this kind of writing is rare", "your tone is unreal", etc.).
+  Don't: ask about promo yet. Don't pitch anything.
+
+Stage 3 — QUALIFY
+  Goal: find out if they've worked with creators / done promo before.
+  Do: slip a casual question in like a peer asking — "btw have you ever had your stuff pushed by creators?" / "ever done any promo with tiktokers before?".
+  Don't: phrase it like a survey or sales discovery. Make it feel like curiosity.
+
+Stage 4 — PITCH
+  Goal: plant the viral idea. Tell them their song has the right ingredients to blow up — they just need the right push. Offer a SPECIFIC trend angle they could ride (something concrete that uses their song to start a sound-trend on TikTok, e.g. a recurring visual gag, a transition, a hook moment).
+  Do: be excited and creative, frame it as a fun creative move not a sales pitch. Make them feel chosen.
+  Don't: mention price, terms, or "offer". Just the idea.
+
+Stage 5 — CLOSING
+  Goal: convert their interest into a yes-go-deeper moment.
+  Do: when they're showing real interest, get them to confirm they want to do it. Something like "want me to put something together for you?" or "should i draft what we'd actually do?".
+  Don't: send the offer link yourself — a human will do that. Just bring them right to the edge.
+
+When you read their latest reply, decide:
+- Are they ready for the next stage's move? Then advance.
+- Still warming up? Stay on the current stage.
+- They went cold or off-topic? Stay, gently re-engage.
+- They asked a direct question? Answer it briefly first, then nudge.
+
+You can also DOWN-shift if needed (e.g. they got hesitant — pull back to rapport).`;
+
+export type DraftReplyResult = {
+  reply: string;
+  stageAfter: FunnelStage;
+  rationale: string;
+};
+
 export async function draftReply(args: {
   artist: ArtistRow;
   mo3ntit: Mo3ntitRow | null;
   history: Array<{ direction: "in" | "out"; body: string }>;
   latestInbound: string;
-}): Promise<string> {
-  const { artist, mo3ntit, history, latestInbound } = args;
+  stage: FunnelStage;
+}): Promise<DraftReplyResult> {
+  const { artist, mo3ntit, history, latestInbound, stage } = args;
 
   const transcript = history
     .map((m) => `${m.direction === "out" ? "US" : "ARTIST"}: ${m.body}`)
     .join("\n");
 
-  const prompt = `Draft a short, natural reply in the same DM thread. We are ${mo3ntit ? `@${mo3ntit.handle}` : "a TikTok creator"}, reaching out to indie artist @${artist.account} (${artist.nickname}).
+  const prompt = `${FUNNEL_DESCRIPTION}
 
+CONTEXT
+We are ${mo3ntit ? `@${mo3ntit.handle}` : "a TikTok creator"}, talking to indie artist @${artist.account} (${artist.nickname}).
 Artist brief: ${artist.artist_brief ?? "(none)"}
 Song brief: ${artist.song_brief ?? "(none)"}
-${mo3ntit?.description ? `Our (the sender's) creator style: ${mo3ntit.description}` : ""}
+${mo3ntit?.description ? `Our (sender) creator style: ${mo3ntit.description}` : ""}
 
-Conversation so far:
+CURRENT STAGE: ${stage} (${FUNNEL_STAGE_LABELS[stage]})
+
+CONVERSATION SO FAR:
 ${transcript || "(no prior messages logged)"}
 
-Their latest message:
+THEIR LATEST MESSAGE:
 "${latestInbound}"
 
-Write the reply. Keep it under 25 words, one sentence, casual, human, no emojis unless they used one first, no salesy language, match their energy. Don't mention the song title. Return only the reply text. No quotes, no preamble.`;
+Draft the next reply.
+
+Hard rules:
+- Max 25 words. One sentence ideally, two max.
+- Plain text, no emojis unless they used one first.
+- Don't quote their words back. Don't say "love your stuff" / "big fan" / "saw your video". Don't mention the song title.
+- Don't pitch anything in stage rapport/qualify. Only in pitch/closing.
+
+Return JSON only:
+{
+  "reply": "<the message text>",
+  "stageAfter": "hook | rapport | qualify | pitch | closing",
+  "rationale": "<one short sentence on why this stage is right and what this message accomplishes>"
+}`;
 
   const resp = await anthropic().messages.create({
     model: MODEL,
-    max_tokens: 200,
+    max_tokens: 600,
     messages: [{ role: "user", content: prompt }],
   });
-  const text = (resp.content[0] as Anthropic.TextBlock).text.trim();
-  return stripQuotes(text);
+  const text = (resp.content[0] as Anthropic.TextBlock).text;
+  const parsed = await extractJson<DraftReplyResult>(text);
+
+  if (!FUNNEL_STAGES.includes(parsed.stageAfter)) {
+    parsed.stageAfter = stage;
+  }
+  parsed.reply = stripQuotes((parsed.reply ?? "").trim());
+  return parsed;
 }
 
 export async function createArtistFromHandle(rawHandle: string): Promise<ArtistRow> {

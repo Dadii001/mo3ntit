@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { updateMondayStatus } from "@/lib/monday";
-import { getArtistById, markFirstDmSent, STATUS_LABELS } from "@/lib/supabase";
+import {
+  getArtistById,
+  markFirstDmSent,
+  STATUS_LABELS,
+  updateArtistFunnelStage,
+} from "@/lib/supabase";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,6 +27,8 @@ export async function POST(req: Request) {
       promptId: body.promptId,
       body: body.body,
     });
+    // First DM done — funnel advances from hook → rapport
+    await updateArtistFunnelStage(body.artistId, "rapport");
 
     let mondaySynced = false;
     let mondayError: string | null = null;
