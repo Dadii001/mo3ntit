@@ -2,7 +2,7 @@ import { analyzeCreator } from "@/lib/mo3ntitin";
 import { saveMo3ntitToSupabase } from "@/lib/supabase";
 
 export const runtime = "nodejs";
-export const maxDuration = 800;
+export const maxDuration = 300;
 
 const DEFAULT_HANDLES = [
   "alex.gasx",

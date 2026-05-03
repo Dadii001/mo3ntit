@@ -7,7 +7,7 @@ import {
 import { getUserInfo } from "@/lib/tiktok";
 
 export const runtime = "nodejs";
-export const maxDuration = 800;
+export const maxDuration = 300;
 export const dynamic = "force-dynamic";
 
 async function downloadAvatar(url: string): Promise<{ buffer: Buffer; contentType: string }> {
