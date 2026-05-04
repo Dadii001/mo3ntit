@@ -35,6 +35,7 @@ const STATUS_PILL: Record<ArtistStatus, string> = {
   lost: "bg-red-500/15 border-red-500/40 text-red-200",
 };
 import type { ConversationAnalysis, InboxAnalysis } from "@/lib/dm-agent";
+import { MACRO_SIGNALS, type MacroSignal } from "@/lib/macro-signals";
 
 type Props = {
   initialPrompts: DmPromptRow[];
@@ -96,6 +97,12 @@ export function DmAgentDashboard({ initialPrompts }: Props) {
   } | null>(null);
   const [queueCount, setQueueCount] = useState<number | null>(null);
   const [queueHigh, setQueueHigh] = useState<number>(100);
+  const [macroSignal, setMacroSignal] = useState<MacroSignal>("idle");
+  const [macroOn, setMacroOn] = useState<boolean>(false);
+
+  function paintSignal(s: MacroSignal) {
+    setMacroSignal(macroOn ? s : "idle");
+  }
 
   async function refreshQueueCount() {
     try {
@@ -139,6 +146,8 @@ export function DmAgentDashboard({ initialPrompts }: Props) {
           ? "This artist already received a DM. Review and decide whether to skip."
           : `Send the DM from @${j.mo3ntit.handle} to @${j.artist.account}, then click "Mark sent".`,
       );
+      // Macro: send DM + check inbox
+      if (!j.alreadySent) paintSignal("send_dm");
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -204,6 +213,7 @@ export function DmAgentDashboard({ initialPrompts }: Props) {
       if (!r.ok) throw new Error((await r.json()).error || "failed");
       setTodoNext("Move on — click Next artist or check the inbox for replies.");
       await refreshQueueCount();
+      paintSignal("idle");
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -296,6 +306,8 @@ export function DmAgentDashboard({ initialPrompts }: Props) {
           ? "Nothing to reply to — load the next artist."
           : `Open ${j.threads[0]?.handle ?? "the unread thread"} and paste the conversation screenshot below.`,
       );
+      // Macro: route depending on unread count
+      paintSignal(j.unreadCount === 0 ? "close_next" : "open_thread");
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -371,6 +383,8 @@ export function DmAgentDashboard({ initialPrompts }: Props) {
             ? `Send the reply, then send the offer link manually — status is already Needs offer.`
             : `Review the draft, copy it, send it, then click "Mark sent".`,
         );
+        // Macro: send the drafted reply
+        paintSignal("send_reply");
       } else if (j.warning) {
         pushResult("amber", "Could not match artist", j.warning);
         setTodoNext("Find this artist manually or add them to the DB.");
@@ -451,7 +465,16 @@ export function DmAgentDashboard({ initialPrompts }: Props) {
           todoNext={todoNext}
         />
 
-        <ResultInboxColumn results={results} onClear={() => setResults([])} />
+        <ResultInboxColumn
+          results={results}
+          onClear={() => setResults([])}
+          macroSignal={macroSignal}
+          macroOn={macroOn}
+          onMacroToggle={(v) => {
+            setMacroOn(v);
+            if (!v) setMacroSignal("idle");
+          }}
+        />
       </div>
     </>
   );
@@ -734,10 +757,17 @@ function AnalyzerColumn({
 function ResultInboxColumn({
   results,
   onClear,
+  macroSignal,
+  macroOn,
+  onMacroToggle,
 }: {
   results: ResultEntry[];
   onClear: () => void;
+  macroSignal: MacroSignal;
+  macroOn: boolean;
+  onMacroToggle: (v: boolean) => void;
 }) {
+  const sig = MACRO_SIGNALS[macroSignal];
   return (
     <div className="dm-col card p-5 flex flex-col gap-3 overflow-hidden">
       <div className="flex items-center justify-between">
@@ -749,6 +779,36 @@ function ResultInboxColumn({
             Clear
           </button>
         )}
+      </div>
+
+      {/* Macro signal swatch — Macro Commander samples this pixel */}
+      <div className="flex items-center gap-3 rounded-lg border border-[var(--color-border)] p-3 bg-[var(--color-ink)]">
+        <div
+          id="macro-signal"
+          className="w-24 h-24 rounded-md border border-white/10 shrink-0"
+          style={{ backgroundColor: sig.color }}
+          aria-label={`Macro signal: ${sig.label}`}
+        />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center justify-between gap-2 mb-1">
+            <span className="text-[10px] uppercase mono tracking-wider text-neutral-500">
+              Macro signal
+            </span>
+            <label className="flex items-center gap-1 text-[11px] cursor-pointer">
+              <input
+                type="checkbox"
+                checked={macroOn}
+                onChange={(e) => onMacroToggle(e.target.checked)}
+              />
+              <span className={macroOn ? "text-emerald-300" : "text-neutral-500"}>
+                {macroOn ? "ON" : "OFF"}
+              </span>
+            </label>
+          </div>
+          <div className="text-sm font-semibold">{sig.label}</div>
+          <div className="text-[10px] text-neutral-500 mono">{sig.color}</div>
+          <div className="text-[11px] text-neutral-400 leading-snug mt-1">{sig.hint}</div>
+        </div>
       </div>
       <div className="flex-1 min-h-0 overflow-y-auto pr-1 flex flex-col gap-3">
         {results.length === 0 ? (
