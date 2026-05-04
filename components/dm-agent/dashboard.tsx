@@ -100,11 +100,121 @@ export function DmAgentDashboard({ initialPrompts }: Props) {
   const [macroSignal, setMacroSignal] = useState<MacroSignal>("idle");
   const [macroOn, setMacroOn] = useState<boolean>(false);
   const [pendingMessages, setPendingMessages] = useState<string[]>([]);
+  const [agentOn, setAgentOn] = useState<boolean>(false);
+  const [agentBusy, setAgentBusy] = useState<boolean>(false);
+  const [agentLog, setAgentLog] = useState<string[]>([]);
   const prefetchRef = useRef<{
     state: (LoadedState & { dm: string }) | null;
     inFlight: boolean;
     forSkipId: string | null;
   }>({ state: null, inFlight: false, forSkipId: null });
+
+  function appendAgentLog(line: string) {
+    setAgentLog((prev) => [line, ...prev].slice(0, 30));
+  }
+
+  type AgentEvent =
+    | { type: "start"; trigger: string }
+    | {
+        type: "action";
+        action:
+          | { type: "display_message"; text: string }
+          | { type: "paint_signal"; signal: MacroSignal }
+          | { type: "thinking"; text: string }
+          | { type: "tool_called"; name: string; input: unknown }
+          | { type: "tool_result"; name: string; result: unknown };
+      }
+    | { type: "done"; stopReason: string; finalStatus: string; finalStage: string; agentText: string }
+    | { type: "error"; message: string };
+
+  async function runAgentTick(args: {
+    trigger: "start" | "inbox" | "conversation" | "message_sent";
+    imageBase64?: string;
+    extraNote?: string;
+  }) {
+    if (!loaded || agentBusy) return;
+    setAgentBusy(true);
+    appendAgentLog(`▶ tick: ${args.trigger}`);
+    try {
+      const r = await fetch("/api/dm-agent/agent-tick", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          artistId: loaded.artist.id,
+          trigger: args.trigger,
+          imageBase64: args.imageBase64,
+          extraNote: args.extraNote,
+        }),
+      });
+      if (!r.ok || !r.body) throw new Error(`agent-tick ${r.status}`);
+
+      const reader = r.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split("\n");
+        buf = lines.pop() ?? "";
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          const evt = JSON.parse(line) as AgentEvent;
+          if (evt.type === "action") {
+            const a = evt.action;
+            if (a.type === "display_message") {
+              setDm(a.text);
+              setPendingMessages([]);
+              appendAgentLog(`✎ display: ${a.text.slice(0, 80)}`);
+            } else if (a.type === "paint_signal") {
+              setMacroSignal(macroOn ? a.signal : "idle");
+              appendAgentLog(`🎨 signal: ${a.signal}`);
+            } else if (a.type === "thinking") {
+              appendAgentLog(`💭 ${a.text.slice(0, 100)}`);
+            } else if (a.type === "tool_called") {
+              appendAgentLog(`🔧 ${a.name}(${JSON.stringify(a.input).slice(0, 80)})`);
+            } else if (a.type === "tool_result") {
+              const r = a.result as { ok?: boolean; error?: string };
+              if (!r?.ok && r?.error) appendAgentLog(`✗ ${a.name}: ${r.error}`);
+            }
+          } else if (evt.type === "done") {
+            appendAgentLog(`■ stop: ${evt.stopReason} → status=${evt.finalStatus}`);
+            // Update loaded artist's status/stage in place
+            if (loaded) {
+              setLoaded({
+                ...loaded,
+                artist: {
+                  ...loaded.artist,
+                  status: evt.finalStatus,
+                  funnel_stage: evt.finalStage,
+                  first_dm_sent_at:
+                    loaded.artist.first_dm_sent_at ??
+                    (evt.finalStatus !== "new" ? new Date().toISOString() : null),
+                },
+                alreadySent: evt.finalStatus !== "new" || loaded.alreadySent,
+              });
+            }
+            // Auto-advance: if agent finished a needs_offer / lost / done-and-close, load next
+            if (
+              evt.stopReason === "needs_offer" ||
+              evt.stopReason === "lost"
+            ) {
+              await refreshQueueCount();
+              setTimeout(() => loadNext(), 800);
+            }
+          } else if (evt.type === "error") {
+            appendAgentLog(`✗ error: ${evt.message}`);
+            setError(evt.message);
+          }
+        }
+      }
+    } catch (e) {
+      setError((e as Error).message);
+      appendAgentLog(`✗ ${(e as Error).message}`);
+    } finally {
+      setAgentBusy(false);
+    }
+  }
 
   function paintSignal(s: MacroSignal) {
     setMacroSignal(macroOn ? s : "idle");
@@ -369,6 +479,10 @@ export function DmAgentDashboard({ initialPrompts }: Props) {
   }
 
   async function handleInboxImage(base64: string) {
+    if (agentOn && loaded) {
+      await runAgentTick({ trigger: "inbox", imageBase64: base64 });
+      return;
+    }
     setBusy("inbox");
     setError(null);
     try {
@@ -407,6 +521,10 @@ export function DmAgentDashboard({ initialPrompts }: Props) {
   }
 
   async function handleConvoImage(base64: string) {
+    if (agentOn && loaded) {
+      await runAgentTick({ trigger: "conversation", imageBase64: base64 });
+      return;
+    }
     setBusy("convo");
     setError(null);
     try {
@@ -531,6 +649,30 @@ export function DmAgentDashboard({ initialPrompts }: Props) {
           </span>
         )}
 
+        <button
+          className={agentOn ? "btn" : "btn-ghost"}
+          disabled={!loaded}
+          onClick={async () => {
+            const next = !agentOn;
+            setAgentOn(next);
+            if (next && loaded) {
+              await runAgentTick({ trigger: "start" });
+            }
+          }}
+          title="Autonomous Claude agent: drives the funnel, paints macro signals, drafts messages. Stops on needs_offer / lost."
+        >
+          {agentBusy ? (
+            <span className="flex items-center gap-2">
+              <span className="inline-block w-2 h-2 rounded-full bg-white animate-pulse" />
+              Agent thinking...
+            </span>
+          ) : agentOn ? (
+            "Agent: ON"
+          ) : (
+            "Run agent"
+          )}
+        </button>
+
         {!preassign && queueCount !== null && (
           <QueueGauge count={queueCount} high={queueHigh} />
         )}
@@ -569,6 +711,8 @@ export function DmAgentDashboard({ initialPrompts }: Props) {
             setMacroOn(v);
             if (!v) setMacroSignal("idle");
           }}
+          agentLog={agentLog}
+          agentOn={agentOn}
         />
       </div>
     </>
@@ -870,12 +1014,16 @@ function ResultInboxColumn({
   macroSignal,
   macroOn,
   onMacroToggle,
+  agentLog,
+  agentOn,
 }: {
   results: ResultEntry[];
   onClear: () => void;
   macroSignal: MacroSignal;
   macroOn: boolean;
   onMacroToggle: (v: boolean) => void;
+  agentLog: string[];
+  agentOn: boolean;
 }) {
   const sig = MACRO_SIGNALS[macroSignal];
   return (
@@ -920,6 +1068,26 @@ function ResultInboxColumn({
           <div className="text-[11px] text-neutral-400 leading-snug mt-1">{sig.hint}</div>
         </div>
       </div>
+
+      {/* Agent log — shown only when agent is on or has lines */}
+      {(agentOn || agentLog.length > 0) && (
+        <div className="rounded-lg border border-[var(--color-border)] p-3 bg-[var(--color-ink)] flex flex-col gap-1">
+          <div className="text-[10px] uppercase mono tracking-wider text-neutral-500 mb-1">
+            Agent log {agentOn && <span className="text-emerald-300">· running</span>}
+          </div>
+          {agentLog.length === 0 ? (
+            <div className="text-[11px] text-neutral-500">Waiting for the first tick…</div>
+          ) : (
+            <div className="flex flex-col gap-0.5 max-h-32 overflow-y-auto">
+              {agentLog.map((line, i) => (
+                <div key={i} className="text-[11px] mono text-neutral-300 truncate">
+                  {line}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
       <div className="flex-1 min-h-0 overflow-y-auto pr-1 flex flex-col gap-3">
         {results.length === 0 ? (
           <div className="text-sm text-neutral-500">
