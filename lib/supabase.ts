@@ -227,15 +227,16 @@ function requireClient(): SupabaseClient {
   return c;
 }
 
-export async function getNextArtistForDm(): Promise<ArtistRow | null> {
+export async function getNextArtistForDm(opts: { skipId?: string } = {}): Promise<ArtistRow | null> {
   const c = requireClient();
-  const { data, error } = await c
+  let q = c
     .from("artists")
     .select("*")
     .is("first_dm_sent_at", null)
     .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .limit(1);
+  if (opts.skipId) q = q.neq("id", opts.skipId);
+  const { data, error } = await q.maybeSingle();
   if (error) throw new Error(`getNextArtistForDm: ${error.message}`);
   return data as ArtistRow | null;
 }

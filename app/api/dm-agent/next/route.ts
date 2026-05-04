@@ -21,10 +21,11 @@ export async function POST(req: Request) {
   try {
     const url = new URL(req.url);
     const explicitArtistId = url.searchParams.get("artistId");
+    const skipId = url.searchParams.get("skipId") ?? undefined;
 
     const artist = explicitArtistId
       ? await getArtistById(explicitArtistId)
-      : await getNextArtistForDm();
+      : await getNextArtistForDm({ skipId });
     if (!artist) {
       return NextResponse.json({ error: "no artist available" }, { status: 404 });
     }

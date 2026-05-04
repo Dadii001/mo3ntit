@@ -100,6 +100,11 @@ export function DmAgentDashboard({ initialPrompts }: Props) {
   const [macroSignal, setMacroSignal] = useState<MacroSignal>("idle");
   const [macroOn, setMacroOn] = useState<boolean>(false);
   const [pendingMessages, setPendingMessages] = useState<string[]>([]);
+  const prefetchRef = useRef<{
+    state: (LoadedState & { dm: string }) | null;
+    inFlight: boolean;
+    forSkipId: string | null;
+  }>({ state: null, inFlight: false, forSkipId: null });
 
   function paintSignal(s: MacroSignal) {
     setMacroSignal(macroOn ? s : "idle");
@@ -130,26 +135,78 @@ export function DmAgentDashboard({ initialPrompts }: Props) {
 
   const activePrompts = prompts.filter((p) => p.is_active);
 
+  function applyLoaded(j: LoadedState & { dm: string }) {
+    setLoaded(j);
+    setDm(j.dm);
+    setPendingMessages([]);
+    setTodoNext(
+      j.alreadySent
+        ? "This artist already received a DM. Review and decide whether to skip."
+        : `Send the DM from @${j.mo3ntit.handle} to @${j.artist.account}, then click "Mark sent".`,
+    );
+    if (!j.alreadySent) paintSignal("send_dm");
+  }
+
+  async function fetchOne(
+    artistId?: string,
+    skipId?: string,
+    throwOnError = false,
+  ): Promise<(LoadedState & { dm: string }) | null> {
+    const params = new URLSearchParams();
+    if (artistId) params.set("artistId", artistId);
+    if (skipId) params.set("skipId", skipId);
+    const r = await fetch(
+      `/api/dm-agent/next${params.toString() ? "?" + params.toString() : ""}`,
+      { method: "POST" },
+    );
+    if (!r.ok) {
+      if (throwOnError) {
+        const err = await r.json().catch(() => ({}));
+        throw new Error(err.error || `HTTP ${r.status}`);
+      }
+      return null;
+    }
+    return (await r.json()) as LoadedState & { dm: string };
+  }
+
+  function startPrefetch(currentArtistId: string) {
+    const cache = prefetchRef.current;
+    if (cache.inFlight || (cache.state && cache.forSkipId === currentArtistId)) return;
+    cache.inFlight = true;
+    cache.forSkipId = currentArtistId;
+    fetchOne(undefined, currentArtistId)
+      .then((j) => {
+        // Only keep if user hasn't moved on yet
+        if (prefetchRef.current.forSkipId === currentArtistId) {
+          prefetchRef.current.state = j;
+        }
+      })
+      .catch(() => {
+        /* swallow — prefetch is best-effort */
+      })
+      .finally(() => {
+        prefetchRef.current.inFlight = false;
+      });
+  }
+
   async function loadNext(artistId?: string) {
     setBusy("next");
     setError(null);
     try {
-      const url = artistId
-        ? `/api/dm-agent/next?artistId=${encodeURIComponent(artistId)}`
-        : "/api/dm-agent/next";
-      const r = await fetch(url, { method: "POST" });
-      if (!r.ok) throw new Error((await r.json()).error || "failed");
-      const j = (await r.json()) as LoadedState & { dm: string };
-      setLoaded(j);
-      setDm(j.dm);
-      setPendingMessages([]);
-      setTodoNext(
-        j.alreadySent
-          ? "This artist already received a DM. Review and decide whether to skip."
-          : `Send the DM from @${j.mo3ntit.handle} to @${j.artist.account}, then click "Mark sent".`,
-      );
-      // Macro: send DM + check inbox
-      if (!j.alreadySent) paintSignal("send_dm");
+      // Cache hit: use prefetched payload, then prefetch the next one.
+      if (!artistId && prefetchRef.current.state) {
+        const cached = prefetchRef.current.state;
+        prefetchRef.current.state = null;
+        prefetchRef.current.forSkipId = null;
+        applyLoaded(cached);
+        startPrefetch(cached.artist.id);
+        return;
+      }
+
+      const j = await fetchOne(artistId, undefined, true);
+      if (!j) throw new Error("no artist available");
+      applyLoaded(j);
+      startPrefetch(j.artist.id);
     } catch (e) {
       setError((e as Error).message);
     } finally {
