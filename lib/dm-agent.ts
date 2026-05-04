@@ -149,18 +149,26 @@ export async function analyzeInboxScreenshot(imageBase64: string): Promise<Inbox
 
   const prompt = `This is a screenshot of a TikTok inbox. Identify any UNREAD message threads.
 
-Unread indicators: bold text, red dot/badge, unread counter, "New" tag.
+STRICT RULE — a thread is UNREAD ONLY if it has a visible RED DOT or RED CIRCLE/BADGE next to or on top of the avatar / on the right side of the row. That red mark is the ONLY signal that counts.
+
+Things that DO NOT mean unread on their own:
+- bold-looking text
+- recent timestamps
+- the thread being at the top of the list
+- text being slightly brighter than other rows
+
+If you do not see an actual red dot/badge on a row, that row is READ. Do not guess. Do not infer.
 
 Return JSON only:
 {
-  "unreadCount": <number of unread threads visible>,
+  "unreadCount": <integer — count ONLY rows with a red dot/badge>,
   "threads": [
     { "handle": "<@handle if visible, else null>", "nickname": "<display name if visible, else null>", "snippet": "<the visible message preview text>" }
   ],
-  "notes": "<one short note if anything is ambiguous, else null>"
+  "notes": "<short note ONLY if you saw something ambiguous, else null>"
 }
 
-Only include threads that look UNREAD. Empty array if there are no unread threads.`;
+If there are zero red dots in the screenshot, return unreadCount: 0 and an empty threads array. Do not include any read threads in the threads array.`;
 
   const resp = await anthropic().messages.create({
     model: MODEL,
