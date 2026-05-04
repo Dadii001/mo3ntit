@@ -558,7 +558,6 @@ export function DmAgentDashboard({ initialPrompts }: Props) {
           busy={busy}
           inboxResult={inboxResult}
           convoResult={convoResult}
-          todoNext={todoNext}
         />
 
         <ResultInboxColumn
@@ -818,14 +817,12 @@ function AnalyzerColumn({
   busy,
   inboxResult,
   convoResult,
-  todoNext,
 }: {
   onInbox: (base64: string) => void;
   onConvo: (base64: string) => void;
   busy: string;
   inboxResult: InboxAnalysis | null;
   convoResult: { analysis: ConversationAnalysis; artistFound: boolean } | null;
-  todoNext: string;
 }) {
   return (
     <div className="dm-col card p-5 flex flex-col gap-4 overflow-hidden">
@@ -862,10 +859,6 @@ function AnalyzerColumn({
             {convoResult.analysis.artistHandle ?? "(unreadable)"}
           </div>
         )}
-
-        <Field label="To do next">
-          <p className="text-sm text-neutral-200 leading-relaxed">{todoNext}</p>
-        </Field>
       </div>
     </div>
   );
