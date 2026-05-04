@@ -263,7 +263,7 @@ When you read their latest reply, decide:
 You can also DOWN-shift if needed (e.g. they got hesitant — pull back to rapport).`;
 
 export type DraftReplyResult = {
-  reply: string;
+  messages: string[];
   stageAfter: FunnelStage;
   rationale: string;
 };
@@ -300,31 +300,57 @@ THEIR LATEST MESSAGE:
 Draft the next reply.
 
 Hard rules:
-- Max 25 words. One sentence ideally, two max.
 - Plain text, no emojis unless they used one first.
 - Don't quote their words back. Don't say "love your stuff" / "big fan" / "saw your video". Don't mention the song title.
 - Don't pitch anything in stage rapport/qualify. Only in pitch/closing.
 
+CADENCE — you can split the reply into 1, 2, or 3 short back-to-back messages if a natural human texting rhythm would do so (e.g. a quick hook, then a follow-up thought, then a question). MOST OF THE TIME use ONE message. Only split when:
+- Each chunk would stand on its own as a complete short thought.
+- The rhythm reads like how a person actually texts, not one message arbitrarily chopped.
+- The split adds real warmth (e.g. a "btw…" beat, a clarifying example).
+
+Each individual message: max 18 words.
+
 Return JSON only:
 {
-  "reply": "<the message text>",
+  "messages": ["msg 1", "msg 2 (optional)", "msg 3 (optional)"],
   "stageAfter": "hook | rapport | qualify | pitch | closing",
-  "rationale": "<one short sentence on why this stage is right and what this message accomplishes>"
+  "rationale": "<one short sentence on why this stage is right and (if you split) why splitting feels natural>"
 }`;
 
   const resp = await anthropic().messages.create({
     model: MODEL,
-    max_tokens: 600,
+    max_tokens: 800,
     messages: [{ role: "user", content: prompt }],
   });
   const text = (resp.content[0] as Anthropic.TextBlock).text;
-  const parsed = await extractJson<DraftReplyResult>(text);
+  const parsed = await extractJson<{
+    messages?: string[];
+    reply?: string;
+    stageAfter: FunnelStage;
+    rationale: string;
+  }>(text);
 
   if (!FUNNEL_STAGES.includes(parsed.stageAfter)) {
     parsed.stageAfter = stage;
   }
-  parsed.reply = stripQuotes((parsed.reply ?? "").trim());
-  return parsed;
+
+  // Accept either { messages: [...] } (preferred) or { reply: "..." } (legacy fallback).
+  let raw: string[] = Array.isArray(parsed.messages)
+    ? parsed.messages
+    : parsed.reply
+      ? [parsed.reply]
+      : [];
+  raw = raw
+    .map((m) => stripQuotes((m ?? "").trim()))
+    .filter((m) => m.length > 0)
+    .slice(0, 3);
+
+  return {
+    messages: raw,
+    stageAfter: parsed.stageAfter,
+    rationale: parsed.rationale ?? "",
+  };
 }
 
 export async function createArtistFromHandle(rawHandle: string): Promise<ArtistRow> {
@@ -367,85 +393,6 @@ export async function createArtistFromHandle(rawHandle: string): Promise<ArtistR
     bio: profile.signature || null,
     verified: profile.verified,
   });
-}
-
-export type FollowUpResult = {
-  followUp: string | null;
-  reasoning: string;
-};
-
-const MAX_CONSECUTIVE_OUTBOUND = 3;
-
-export async function maybeFollowUp(args: {
-  artist: ArtistRow;
-  mo3ntit: Mo3ntitRow | null;
-  history: Array<{ direction: "in" | "out"; body: string }>;
-  stage: FunnelStage;
-  justSent: string;
-}): Promise<FollowUpResult> {
-  const { artist, mo3ntit, history, stage, justSent } = args;
-
-  // Count consecutive outbound at the tail of history (the just-sent message
-  // is already in history at this point).
-  let consecutive = 0;
-  for (let i = history.length - 1; i >= 0; i--) {
-    if (history[i].direction === "out") consecutive++;
-    else break;
-  }
-  if (consecutive >= MAX_CONSECUTIVE_OUTBOUND) {
-    return { followUp: null, reasoning: `already sent ${consecutive} in a row — stop` };
-  }
-
-  const transcript = history
-    .map((m) => `${m.direction === "out" ? "US" : "ARTIST"}: ${m.body}`)
-    .join("\n");
-
-  const prompt = `You're @${mo3ntit?.handle ?? "us"} talking to indie artist @${artist.account}. Funnel stage: ${stage}.
-
-Conversation so far (newest message at the bottom is what we JUST sent):
-${transcript || "(empty)"}
-
-Decide: would a real human peer send ONE MORE message right now, or stop?
-
-Send a follow-up ONLY if it adds a specific thought — a quick tangent, a clarifying example, a small "btw…" that builds on what we just said. The goal is to make the conversation feel natural (humans often send 2-3 short messages in a row).
-
-DO NOT send a follow-up if:
-- It would just repeat or restate the previous message.
-- The previous message ended with a question — let them answer first.
-- We've already sent ${consecutive} message(s) in a row and a 2nd/3rd would feel needy or spammy.
-- The funnel stage is "hook" — first DM stays as one message, never follow-up.
-- Nothing genuinely new to add.
-
-Most of the time the answer is null. Be conservative.
-
-Voice: same peer-to-peer tone as the main reply. Plain text, max 18 words, one sentence. No emojis unless they used one first.
-
-Return JSON only:
-{
-  "followUp": "<text, or null>",
-  "reasoning": "<one short sentence>"
-}`;
-
-  const resp = await anthropic().messages.create({
-    model: MODEL,
-    max_tokens: 300,
-    messages: [{ role: "user", content: prompt }],
-  });
-  const text = (resp.content[0] as Anthropic.TextBlock).text;
-  const parsed = await extractJson<{ followUp: string | null; reasoning: string }>(text);
-
-  // Hard rule: never follow up after the first DM.
-  if (stage === "hook") {
-    return { followUp: null, reasoning: "first DM is always one message" };
-  }
-
-  if (parsed.followUp && typeof parsed.followUp === "string") {
-    parsed.followUp = stripQuotes(parsed.followUp.trim());
-    if (!parsed.followUp) parsed.followUp = null;
-  } else {
-    parsed.followUp = null;
-  }
-  return parsed;
 }
 
 export const DEFAULT_PROMPT_TEMPLATE = `You are {{mo3ntit_nickname}} (@{{mo3ntit_handle}}), a TikTok creator. Write the FIRST DM to indie artist @{{artist_handle}} ({{artist_nickname}}).

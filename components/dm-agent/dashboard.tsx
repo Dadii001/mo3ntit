@@ -99,6 +99,7 @@ export function DmAgentDashboard({ initialPrompts }: Props) {
   const [queueHigh, setQueueHigh] = useState<number>(100);
   const [macroSignal, setMacroSignal] = useState<MacroSignal>("idle");
   const [macroOn, setMacroOn] = useState<boolean>(false);
+  const [pendingMessages, setPendingMessages] = useState<string[]>([]);
 
   function paintSignal(s: MacroSignal) {
     setMacroSignal(macroOn ? s : "idle");
@@ -141,6 +142,7 @@ export function DmAgentDashboard({ initialPrompts }: Props) {
       const j = (await r.json()) as LoadedState & { dm: string };
       setLoaded(j);
       setDm(j.dm);
+      setPendingMessages([]);
       setTodoNext(
         j.alreadySent
           ? "This artist already received a DM. Review and decide whether to skip."
@@ -190,17 +192,18 @@ export function DmAgentDashboard({ initialPrompts }: Props) {
         body: JSON.stringify({ artistId: loaded.artist.id, body: dm }),
       });
       if (!r.ok) throw new Error((await r.json()).error || "failed");
-      const j = (await r.json()) as {
-        followUp: string | null;
-        reasoning: string;
-        stage: string;
-      };
-      if (j.followUp) {
-        setDm(j.followUp);
-        setTodoNext(`Send this follow-up too — feels natural here. ${j.reasoning}`);
+
+      // Dispense the next chunk if the draft was multi-part.
+      if (pendingMessages.length > 0) {
+        const [next, ...rest] = pendingMessages;
+        setDm(next);
+        setPendingMessages(rest);
+        setTodoNext(
+          `Next chunk — ${rest.length} more queued after this. Send it the same way.`,
+        );
         paintSignal("send_reply");
       } else {
-        setTodoNext(`Done sending. ${j.reasoning}`);
+        setTodoNext("All chunks sent. Move on or check the inbox.");
         paintSignal("close_next");
       }
     } catch (e) {
@@ -364,6 +367,7 @@ export function DmAgentDashboard({ initialPrompts }: Props) {
         artist: ArtistRow | null;
         mo3ntit: Mo3ntitRow | null;
         draft: string | null;
+        messages?: string[];
         history?: ConversationRow[];
         warning?: string;
         note?: string;
@@ -396,7 +400,9 @@ export function DmAgentDashboard({ initialPrompts }: Props) {
             matchReason: "carried from existing conversation",
           });
         }
-        setDm(j.draft);
+        const allMessages = j.messages && j.messages.length > 0 ? j.messages : [j.draft];
+        setDm(allMessages[0]);
+        setPendingMessages(allMessages.slice(1));
         const stageNote = j.stageAdvanced
           ? `${FUNNEL_STAGE_LABELS[j.stageBefore ?? ""] ?? j.stageBefore} → ${
               FUNNEL_STAGE_LABELS[j.stageAfter ?? ""] ?? j.stageAfter
@@ -486,6 +492,7 @@ export function DmAgentDashboard({ initialPrompts }: Props) {
           onMessageSent={messageSent}
           onStatusChange={setStatus}
           busy={busy}
+          pendingMessagesCount={pendingMessages.length}
         />
 
         <AnalyzerColumn
@@ -522,6 +529,7 @@ function ArtistColumn({
   onMessageSent,
   onStatusChange,
   busy,
+  pendingMessagesCount,
 }: {
   loaded: LoadedState | null;
   dm: string;
@@ -532,6 +540,7 @@ function ArtistColumn({
   onMessageSent: () => void;
   onStatusChange: (s: ArtistStatus) => void;
   busy: string;
+  pendingMessagesCount: number;
 }) {
   const status = (loaded?.artist.status as ArtistStatus | null) ?? (loaded?.alreadySent ? "sent" : "new");
   const firstDmDone = !!loaded?.alreadySent;
@@ -636,9 +645,13 @@ function ArtistColumn({
                 className="btn flex-1"
                 onClick={onMessageSent}
                 disabled={busy === "sent" || !dm.trim()}
-                title="Log this message; agent decides if a natural follow-up should come next"
+                title="Log this message + dispense the next chunk if more were drafted"
               >
-                {busy === "sent" ? "..." : "Message sent"}
+                {busy === "sent"
+                  ? "..."
+                  : pendingMessagesCount > 0
+                    ? `Message sent (${pendingMessagesCount} more)`
+                    : "Message sent"}
               </button>
             ) : (
               <button
