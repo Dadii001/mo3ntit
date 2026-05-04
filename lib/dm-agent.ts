@@ -369,6 +369,85 @@ export async function createArtistFromHandle(rawHandle: string): Promise<ArtistR
   });
 }
 
+export type FollowUpResult = {
+  followUp: string | null;
+  reasoning: string;
+};
+
+const MAX_CONSECUTIVE_OUTBOUND = 3;
+
+export async function maybeFollowUp(args: {
+  artist: ArtistRow;
+  mo3ntit: Mo3ntitRow | null;
+  history: Array<{ direction: "in" | "out"; body: string }>;
+  stage: FunnelStage;
+  justSent: string;
+}): Promise<FollowUpResult> {
+  const { artist, mo3ntit, history, stage, justSent } = args;
+
+  // Count consecutive outbound at the tail of history (the just-sent message
+  // is already in history at this point).
+  let consecutive = 0;
+  for (let i = history.length - 1; i >= 0; i--) {
+    if (history[i].direction === "out") consecutive++;
+    else break;
+  }
+  if (consecutive >= MAX_CONSECUTIVE_OUTBOUND) {
+    return { followUp: null, reasoning: `already sent ${consecutive} in a row — stop` };
+  }
+
+  const transcript = history
+    .map((m) => `${m.direction === "out" ? "US" : "ARTIST"}: ${m.body}`)
+    .join("\n");
+
+  const prompt = `You're @${mo3ntit?.handle ?? "us"} talking to indie artist @${artist.account}. Funnel stage: ${stage}.
+
+Conversation so far (newest message at the bottom is what we JUST sent):
+${transcript || "(empty)"}
+
+Decide: would a real human peer send ONE MORE message right now, or stop?
+
+Send a follow-up ONLY if it adds a specific thought — a quick tangent, a clarifying example, a small "btw…" that builds on what we just said. The goal is to make the conversation feel natural (humans often send 2-3 short messages in a row).
+
+DO NOT send a follow-up if:
+- It would just repeat or restate the previous message.
+- The previous message ended with a question — let them answer first.
+- We've already sent ${consecutive} message(s) in a row and a 2nd/3rd would feel needy or spammy.
+- The funnel stage is "hook" — first DM stays as one message, never follow-up.
+- Nothing genuinely new to add.
+
+Most of the time the answer is null. Be conservative.
+
+Voice: same peer-to-peer tone as the main reply. Plain text, max 18 words, one sentence. No emojis unless they used one first.
+
+Return JSON only:
+{
+  "followUp": "<text, or null>",
+  "reasoning": "<one short sentence>"
+}`;
+
+  const resp = await anthropic().messages.create({
+    model: MODEL,
+    max_tokens: 300,
+    messages: [{ role: "user", content: prompt }],
+  });
+  const text = (resp.content[0] as Anthropic.TextBlock).text;
+  const parsed = await extractJson<{ followUp: string | null; reasoning: string }>(text);
+
+  // Hard rule: never follow up after the first DM.
+  if (stage === "hook") {
+    return { followUp: null, reasoning: "first DM is always one message" };
+  }
+
+  if (parsed.followUp && typeof parsed.followUp === "string") {
+    parsed.followUp = stripQuotes(parsed.followUp.trim());
+    if (!parsed.followUp) parsed.followUp = null;
+  } else {
+    parsed.followUp = null;
+  }
+  return parsed;
+}
+
 export const DEFAULT_PROMPT_TEMPLATE = `You are {{mo3ntit_nickname}} (@{{mo3ntit_handle}}), a TikTok creator. Write the FIRST DM to indie artist @{{artist_handle}} ({{artist_nickname}}).
 
 Their vibe: {{artist_brief}}

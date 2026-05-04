@@ -179,6 +179,37 @@ export function DmAgentDashboard({ initialPrompts }: Props) {
     }
   }
 
+  async function messageSent() {
+    if (!loaded) return;
+    setBusy("sent");
+    setError(null);
+    try {
+      const r = await fetch("/api/dm-agent/message-sent", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ artistId: loaded.artist.id, body: dm }),
+      });
+      if (!r.ok) throw new Error((await r.json()).error || "failed");
+      const j = (await r.json()) as {
+        followUp: string | null;
+        reasoning: string;
+        stage: string;
+      };
+      if (j.followUp) {
+        setDm(j.followUp);
+        setTodoNext(`Send this follow-up too — feels natural here. ${j.reasoning}`);
+        paintSignal("send_reply");
+      } else {
+        setTodoNext(`Done sending. ${j.reasoning}`);
+        paintSignal("close_next");
+      }
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy("");
+    }
+  }
+
   async function setStatus(status: ArtistStatus) {
     if (!loaded) return;
     setError(null);
@@ -452,6 +483,7 @@ export function DmAgentDashboard({ initialPrompts }: Props) {
           onNext={() => loadNext()}
           onRegenerate={regenerate}
           onMarkSent={markSent}
+          onMessageSent={messageSent}
           onStatusChange={setStatus}
           busy={busy}
         />
@@ -487,6 +519,7 @@ function ArtistColumn({
   onNext,
   onRegenerate,
   onMarkSent,
+  onMessageSent,
   onStatusChange,
   busy,
 }: {
@@ -496,10 +529,12 @@ function ArtistColumn({
   onNext: () => void;
   onRegenerate: () => void;
   onMarkSent: () => void;
+  onMessageSent: () => void;
   onStatusChange: (s: ArtistStatus) => void;
   busy: string;
 }) {
   const status = (loaded?.artist.status as ArtistStatus | null) ?? (loaded?.alreadySent ? "sent" : "new");
+  const firstDmDone = !!loaded?.alreadySent;
   return (
     <div className="dm-col card p-5 flex flex-col gap-4 overflow-hidden">
       <div className="flex items-center justify-between">
@@ -596,13 +631,25 @@ function ArtistColumn({
             >
               {busy === "regen" ? "..." : "Regenerate"}
             </button>
-            <button
-              className="btn flex-1"
-              onClick={onMarkSent}
-              disabled={busy === "sent" || !dm.trim()}
-            >
-              {busy === "sent" ? "Saving..." : "Mark sent"}
-            </button>
+            {firstDmDone ? (
+              <button
+                className="btn flex-1"
+                onClick={onMessageSent}
+                disabled={busy === "sent" || !dm.trim()}
+                title="Log this message; agent decides if a natural follow-up should come next"
+              >
+                {busy === "sent" ? "..." : "Message sent"}
+              </button>
+            ) : (
+              <button
+                className="btn flex-1"
+                onClick={onMarkSent}
+                disabled={busy === "sent" || !dm.trim()}
+                title="First DM only — log + flip status to Sent + sync Monday"
+              >
+                {busy === "sent" ? "Saving..." : "Mark sent"}
+              </button>
+            )}
           </div>
 
           {/* Pipeline actions — appear once first DM is sent */}
