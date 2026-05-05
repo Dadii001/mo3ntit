@@ -2,8 +2,7 @@ import { spawn } from "node:child_process";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type Anthropic from "@anthropic-ai/sdk";
-import { anthropic, extractJson, MODEL } from "./claude";
+import { extractJson, generateWithImages, MODEL } from "./claude-agent";
 import { getUserInfo, getUserPosts, tiktokProfileUrl, type RawVideoExport } from "./tiktok";
 
 const ffmpegPath = require("ffmpeg-static") as string;
@@ -133,11 +132,6 @@ async function analyzeWithVision(args: {
   captions: string[];
   framesB64: string[];
 }): Promise<CreatorAnalysis> {
-  const imageBlocks: Anthropic.ImageBlockParam[] = args.framesB64.map((b64) => ({
-    type: "image",
-    source: { type: "base64", media_type: "image/jpeg", data: b64 },
-  }));
-
   const captionsText = args.captions
     .map((c, i) => `${i + 1}. ${c.trim() || "(no caption)"}`)
     .join("\n");
@@ -162,21 +156,11 @@ Return JSON only, no prose:
   "contentLanguage": "primary spoken/written language code like 'en', 'fr', 'ar', 'es', or null if unclear"
 }`;
 
-  const resp = await anthropic().messages.create({
+  const text = await generateWithImages({
+    prompt,
+    images: args.framesB64.map((b64) => ({ base64: b64, mediaType: "image/jpeg" })),
     model: MODEL,
-    max_tokens: 800,
-    messages: [
-      {
-        role: "user",
-        content: [...imageBlocks, { type: "text", text: prompt }],
-      },
-    ],
   });
-
-  const text = resp.content
-    .filter((c): c is Anthropic.TextBlock => c.type === "text")
-    .map((c) => c.text)
-    .join("\n");
   return extractJson<CreatorAnalysis>(text);
 }
 

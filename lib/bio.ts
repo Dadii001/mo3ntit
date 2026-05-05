@@ -1,5 +1,4 @@
-import type Anthropic from "@anthropic-ai/sdk";
-import { anthropic, extractJson, MODEL_FAST, MODEL } from "./claude";
+import { extractJson, generate, MODEL, MODEL_FAST } from "./claude-agent";
 import type { BioAnalysis, ImageAnalysis, SongAnalysis, TikTokAuthor, TikTokVideo } from "./types";
 
 export async function analyzeBio(bio: string, nickname: string): Promise<BioAnalysis> {
@@ -18,12 +17,7 @@ Return JSON only:
   "contactLinks": ["any URLs, emails, or other-platform handles found in bio"],
   "summary": "2-sentence summary of who this artist presents themselves as"
 }`;
-  const resp = await anthropic().messages.create({
-    model: MODEL_FAST,
-    max_tokens: 500,
-    messages: [{ role: "user", content: prompt }],
-  });
-  const text = (resp.content[0] as Anthropic.TextBlock).text;
+  const text = await generate({ prompt, model: MODEL_FAST });
   return extractJson<BioAnalysis>(text);
 }
 
@@ -48,12 +42,7 @@ Signature song: "${song.title ?? "untitled original"}" by ${song.author ?? autho
 Song brief: ${song.brief}
 
 Return the brief only, no preamble.`;
-  const resp = await anthropic().messages.create({
-    model: MODEL,
-    max_tokens: 400,
-    messages: [{ role: "user", content: prompt }],
-  });
-  return (resp.content[0] as Anthropic.TextBlock).text.trim();
+  return generate({ prompt, model: MODEL });
 }
 
 function isMeaninglessSongTitle(title: string | null): boolean {
@@ -100,12 +89,7 @@ ${args.transcript ? args.transcript.slice(0, 3000) : "(no transcript — audio-o
 ${untitled ? "IMPORTANT: The song title is just TikTok's 'original sound' placeholder — NEVER mention or reference the title in the brief. Focus on what the transcript and usage reveal." : ""}
 
 Return the brief only, no preamble, no bullet points — prose.`;
-  const resp = await anthropic().messages.create({
-    model: MODEL,
-    max_tokens: 500,
-    messages: [{ role: "user", content: prompt }],
-  });
-  return (resp.content[0] as Anthropic.TextBlock).text.trim();
+  return generate({ prompt, model: MODEL });
 }
 
 export async function buildCustomDm(args: { artistBrief: string; songBrief: string }): Promise<string> {
@@ -128,10 +112,5 @@ SONG BRIEF:
 ${args.songBrief}
 
 Return the DM text only, nothing else.`;
-  const resp = await anthropic().messages.create({
-    model: MODEL,
-    max_tokens: 100,
-    messages: [{ role: "user", content: prompt }],
-  });
-  return (resp.content[0] as Anthropic.TextBlock).text.trim();
+  return generate({ prompt, model: MODEL });
 }

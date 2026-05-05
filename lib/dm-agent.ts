@@ -1,5 +1,10 @@
-import type Anthropic from "@anthropic-ai/sdk";
-import { anthropic, extractJson, MODEL, MODEL_FAST } from "./claude";
+import {
+  extractJson,
+  generate,
+  generateWithImage,
+  MODEL,
+  MODEL_FAST,
+} from "./claude-agent";
 import {
   insertMinimalArtist,
   uploadAvatar,
@@ -75,13 +80,8 @@ ${list}
 Pick the candidate whose vibe, gender, and content style would feel most natural reaching out to this artist about this song. Return JSON only:
 { "mo3ntitId": "<the id>", "reason": "<one short sentence why this match>" }`;
 
-  const resp = await anthropic().messages.create({
-    model: MODEL_FAST,
-    max_tokens: 300,
-    messages: [{ role: "user", content: prompt }],
-  });
-  const text = (resp.content[0] as Anthropic.TextBlock).text;
-  const out = await extractJson<SelectedMo3ntit>(text);
+  const text = await generate({ prompt, model: MODEL_FAST });
+  const out = extractJson<SelectedMo3ntit>(text);
   if (!candidates.some((c) => c.id === out.mo3ntitId)) {
     return { mo3ntitId: candidates[0].id, reason: "fallback (LLM returned unknown id)" };
   }
@@ -113,17 +113,10 @@ export async function generateFirstDm(args: {
     mo3ntit_gender: mo3ntit.gender ?? "",
   });
 
-  const resp = await anthropic().messages.create({
+  const text = await generate({
+    prompt: `${filled}\n\nReturn only the DM text. No quotes, no preamble, no explanation. Plain text only.`,
     model: MODEL,
-    max_tokens: 200,
-    messages: [
-      {
-        role: "user",
-        content: `${filled}\n\nReturn only the DM text. No quotes, no preamble, no explanation. Plain text only.`,
-      },
-    ],
   });
-  const text = (resp.content[0] as Anthropic.TextBlock).text.trim();
   return stripQuotes(text);
 }
 
@@ -142,11 +135,6 @@ export type InboxAnalysis = {
 };
 
 export async function analyzeInboxScreenshot(imageBase64: string): Promise<InboxAnalysis> {
-  const block: Anthropic.ImageBlockParam = {
-    type: "image",
-    source: { type: "base64", media_type: "image/png", data: imageBase64 },
-  };
-
   const prompt = `This is a screenshot of a TikTok inbox. Identify any UNREAD message threads.
 
 STRICT RULE — a thread is UNREAD ONLY if it has a visible RED DOT or RED CIRCLE/BADGE next to or on top of the avatar / on the right side of the row. That red mark is the ONLY signal that counts.
@@ -170,12 +158,7 @@ Return JSON only:
 
 If there are zero red dots in the screenshot, return unreadCount: 0 and an empty threads array. Do not include any read threads in the threads array.`;
 
-  const resp = await anthropic().messages.create({
-    model: MODEL,
-    max_tokens: 800,
-    messages: [{ role: "user", content: [block, { type: "text", text: prompt }] }],
-  });
-  const text = (resp.content[0] as Anthropic.TextBlock).text;
+  const text = await generateWithImage({ prompt, imageBase64, model: MODEL });
   return extractJson<InboxAnalysis>(text);
 }
 
@@ -191,11 +174,6 @@ export type ConversationAnalysis = {
 export async function analyzeConversationScreenshot(
   imageBase64: string,
 ): Promise<ConversationAnalysis> {
-  const block: Anthropic.ImageBlockParam = {
-    type: "image",
-    source: { type: "base64", media_type: "image/png", data: imageBase64 },
-  };
-
   const prompt = `This is a screenshot of a TikTok DM conversation. Extract the messages in order.
 
 The OUTBOUND side is "us" (the mo3ntit account, usually right-aligned). The INBOUND side is the other artist (usually left-aligned).
@@ -210,12 +188,7 @@ Return JSON only:
   "notes": "<short note about anything unclear, else null>"
 }`;
 
-  const resp = await anthropic().messages.create({
-    model: MODEL,
-    max_tokens: 1200,
-    messages: [{ role: "user", content: [block, { type: "text", text: prompt }] }],
-  });
-  const text = (resp.content[0] as Anthropic.TextBlock).text;
+  const text = await generateWithImage({ prompt, imageBase64, model: MODEL });
   return extractJson<ConversationAnalysis>(text);
 }
 
@@ -318,13 +291,8 @@ Return JSON only:
   "rationale": "<one short sentence on why this stage is right and (if you split) why splitting feels natural>"
 }`;
 
-  const resp = await anthropic().messages.create({
-    model: MODEL,
-    max_tokens: 800,
-    messages: [{ role: "user", content: prompt }],
-  });
-  const text = (resp.content[0] as Anthropic.TextBlock).text;
-  const parsed = await extractJson<{
+  const text = await generate({ prompt, model: MODEL });
+  const parsed = extractJson<{
     messages?: string[];
     reply?: string;
     stageAfter: FunnelStage;

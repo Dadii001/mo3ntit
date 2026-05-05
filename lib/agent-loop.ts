@@ -1,5 +1,11 @@
-import type Anthropic from "@anthropic-ai/sdk";
-import { anthropic, MODEL } from "./claude";
+import { z } from "zod/v4";
+import {
+  createSdkMcpServer,
+  query,
+  tool,
+  type SDKUserMessage,
+} from "@anthropic-ai/claude-agent-sdk";
+import { MODEL } from "./claude-agent";
 import { FUNNEL_STAGE_LABELS, FUNNEL_STAGES, type FunnelStage } from "./dm-agent";
 import { updateMondayStatus } from "./monday";
 import {
@@ -35,102 +41,6 @@ export type AgentTickResult = {
   stopReason: "needs_offer" | "lost" | "done" | "max_iterations" | "error";
 };
 
-// ---- Tool definitions sent to Claude ----
-
-const TOOLS: Anthropic.Messages.Tool[] = [
-  {
-    name: "display_message",
-    description:
-      "Put a draft message in the DM textarea on the dashboard. The human's macro will copy and send it when paint_signal triggers them. Use this to draft any outbound DM.",
-    input_schema: {
-      type: "object",
-      properties: { text: { type: "string", description: "The exact message text to display." } },
-      required: ["text"],
-    },
-  },
-  {
-    name: "paint_signal",
-    description:
-      "Set the macro color swatch. Triggers Macro Commander to do the matching TikTok action. Choose: 'send_dm' (send the displayed DM and take inbox screenshot), 'open_thread' (open top unread thread, take conversation screenshot), 'send_reply' (send the displayed message as a reply), 'close_next' (close DM panel, advance to next artist), 'idle' (no-op).",
-    input_schema: {
-      type: "object",
-      properties: { signal: { type: "string", enum: [...MACRO_SIGNAL_VALUES] } },
-      required: ["signal"],
-    },
-  },
-  {
-    name: "mark_first_dm_sent",
-    description:
-      "Confirm the first DM was actually sent (call this when an inbox screenshot has confirmed the macro executed send_dm). Sets status to 'sent', funnel stage to 'rapport', logs the body to conversations, and syncs to Monday.",
-    input_schema: {
-      type: "object",
-      properties: {
-        body: {
-          type: "string",
-          description: "The exact text of the first DM that was sent (matches what was displayed).",
-        },
-      },
-      required: ["body"],
-    },
-  },
-  {
-    name: "log_outbound",
-    description:
-      "Log an outbound reply that was just sent (use after the macro sends a reply, NOT for the first DM — that uses mark_first_dm_sent).",
-    input_schema: {
-      type: "object",
-      properties: { body: { type: "string" } },
-      required: ["body"],
-    },
-  },
-  {
-    name: "advance_stage",
-    description:
-      "Move the artist's funnel stage. Use when the artist's last reply signals they're ready for the next stage's move.",
-    input_schema: {
-      type: "object",
-      properties: {
-        stage: {
-          type: "string",
-          enum: ["hook", "rapport", "qualify", "pitch", "closing"],
-        },
-        reason: { type: "string", description: "Why you're advancing." },
-      },
-      required: ["stage", "reason"],
-    },
-  },
-  {
-    name: "mark_needs_offer",
-    description:
-      "SUCCESS terminal action. Call when the artist has shown clear interest — asks 'tell me more', 'how much', 'send me details', or otherwise signals they want to do a promo. Sets status to 'needs_offer' (the human will manually send the offer link). Stops the agent for this artist.",
-    input_schema: {
-      type: "object",
-      properties: { reason: { type: "string" } },
-      required: ["reason"],
-    },
-  },
-  {
-    name: "mark_lost",
-    description:
-      "FAILURE terminal action. Use sparingly — only when artist explicitly declines, says 'not interested', insults, or is clearly a wrong-fit. Stops the agent for this artist.",
-    input_schema: {
-      type: "object",
-      properties: { reason: { type: "string" } },
-      required: ["reason"],
-    },
-  },
-  {
-    name: "done",
-    description:
-      "Yield this turn — you've done all you can given the current input. Use after queuing the next macro action (e.g. you displayed the first DM and painted send_dm; now you wait for the inbox screenshot).",
-    input_schema: {
-      type: "object",
-      properties: { reason: { type: "string" } },
-      required: ["reason"],
-    },
-  },
-];
-
 // ---- System prompt ----
 
 function buildSystemPrompt(artist: {
@@ -152,7 +62,7 @@ Macro signals:
 - close_next: macro closes the DM panel; the dashboard will then load the next artist
 - idle: do nothing
 
-You decide ONE step at a time. Each turn, you receive the current state + (optionally) a screenshot the macro just took. You call tools to do your action and end with "done" (or a terminal tool: mark_needs_offer / mark_lost).
+You decide ONE step at a time. Each turn, you receive the current state + (optionally) a screenshot the macro just took. You call tools to do your action. Stop when you've queued the next macro action — no need to keep going.
 
 ==== THE FUNNEL ====
 
@@ -177,197 +87,51 @@ Song brief: ${artist.song_brief ?? "(none)"}
 
 ==== TURN PROTOCOL ====
 - Do exactly one user-visible action per turn (display + paint, OR a terminal tool).
-- After display_message + paint_signal(send_dm | send_reply), call done — wait for the next screenshot.
-- When you receive an inbox screenshot: if 0 unread (no red dots), call mark_first_dm_sent (if status is still 'new') + paint_signal(close_next) + done. If 1+ unread, paint_signal(open_thread) + done.
-- When you receive a conversation screenshot: read the artist's reply, draft your next message via display_message, paint_signal(send_reply), advance_stage if appropriate, log_outbound for what you just drafted, then done.
+- After display_message + paint_signal(send_dm | send_reply), STOP — wait for the next screenshot.
+- When you receive an inbox screenshot: if 0 unread (no red dots), call mark_first_dm_sent (if status is still 'new') + paint_signal(close_next). If 1+ unread, paint_signal(open_thread).
+- When you receive a conversation screenshot: read the artist's reply, draft your next message via display_message, paint_signal(send_reply), advance_stage if appropriate, log_outbound for what you just drafted.
 - Reaching closing + clear interest → mark_needs_offer.
 - Be conservative on mark_lost — only on clear rejection.`;
 }
 
-// ---- Tool execution ----
+// ---- Build the user prompt for this turn ----
 
-type ToolContext = {
-  artistId: string;
-  emit: (a: AgentAction) => void;
-};
-
-async function executeTool(
-  name: string,
-  input: Record<string, unknown>,
-  ctx: ToolContext,
-): Promise<{ ok: boolean; result?: unknown; error?: string; terminal?: AgentTickResult["stopReason"] }> {
-  try {
-    switch (name) {
-      case "display_message": {
-        const text = String(input.text ?? "").trim();
-        if (!text) return { ok: false, error: "empty text" };
-        ctx.emit({ type: "display_message", text });
-        return { ok: true, result: { displayed: true } };
-      }
-
-      case "paint_signal": {
-        const signal = input.signal as MacroSignal;
-        if (!MACRO_SIGNAL_VALUES.includes(signal))
-          return { ok: false, error: `unknown signal '${signal}'` };
-        ctx.emit({ type: "paint_signal", signal });
-        return { ok: true, result: { painted: signal } };
-      }
-
-      case "mark_first_dm_sent": {
-        const artist = await getArtistById(ctx.artistId);
-        if (!artist) return { ok: false, error: "artist not found" };
-        if (artist.first_dm_sent_at) {
-          return { ok: true, result: { alreadySent: true } };
-        }
-        if (!artist.selected_mo3ntit_id || !artist.last_prompt_id) {
-          return { ok: false, error: "artist missing mo3ntit or prompt — cannot mark sent" };
-        }
-        const body = String(input.body ?? "").trim() || (artist.current_dm ?? "");
-        await markFirstDmSent({
-          artistId: artist.id,
-          mo3ntitId: artist.selected_mo3ntit_id,
-          promptId: artist.last_prompt_id,
-          body,
-        });
-        await updateArtistFunnelStage(artist.id, "rapport");
-        if (artist.monday_id) {
-          try {
-            await updateMondayStatus(artist.monday_id, STATUS_LABELS.sent);
-          } catch {
-            /* best-effort */
-          }
-        }
-        return { ok: true, result: { status: "sent", stage: "rapport" } };
-      }
-
-      case "log_outbound": {
-        const artist = await getArtistById(ctx.artistId);
-        if (!artist) return { ok: false, error: "artist not found" };
-        const body = String(input.body ?? "").trim();
-        if (!body) return { ok: false, error: "empty body" };
-        // Dedupe with last outbound
-        const existing = await listConversation(ctx.artistId);
-        const last = existing.at(-1);
-        if (last && last.direction === "out" && last.body.trim() === body) {
-          return { ok: true, result: { dedupedNoOp: true } };
-        }
-        await logConversation({
-          artistId: ctx.artistId,
-          mo3ntitId: artist.selected_mo3ntit_id,
-          direction: "out",
-          body,
-          promptId: artist.last_prompt_id ?? null,
-          source: "agent",
-        });
-        return { ok: true, result: { logged: true } };
-      }
-
-      case "advance_stage": {
-        const stage = input.stage as FunnelStage;
-        if (!FUNNEL_STAGES.includes(stage))
-          return { ok: false, error: `unknown stage '${stage}'` };
-        await updateArtistFunnelStage(ctx.artistId, stage);
-        return { ok: true, result: { stage } };
-      }
-
-      case "mark_needs_offer": {
-        const artist = await getArtistById(ctx.artistId);
-        if (!artist) return { ok: false, error: "artist not found" };
-        await updateArtistStatus(ctx.artistId, "needs_offer");
-        await updateArtistFunnelStage(ctx.artistId, "closing");
-        if (artist.monday_id) {
-          try {
-            await updateMondayStatus(artist.monday_id, STATUS_LABELS.needs_offer);
-          } catch {
-            /* best-effort */
-          }
-        }
-        return { ok: true, result: { status: "needs_offer" }, terminal: "needs_offer" };
-      }
-
-      case "mark_lost": {
-        const artist = await getArtistById(ctx.artistId);
-        if (!artist) return { ok: false, error: "artist not found" };
-        await updateArtistStatus(ctx.artistId, "lost");
-        if (artist.monday_id) {
-          try {
-            await updateMondayStatus(artist.monday_id, STATUS_LABELS.lost);
-          } catch {
-            /* best-effort */
-          }
-        }
-        return { ok: true, result: { status: "lost" }, terminal: "lost" };
-      }
-
-      case "done": {
-        return { ok: true, result: { yielded: true }, terminal: "done" };
-      }
-
-      default:
-        return { ok: false, error: `unknown tool '${name}'` };
-    }
-  } catch (e) {
-    return { ok: false, error: (e as Error).message };
-  }
-}
-
-// ---- Build the user message for this turn ----
-
-function buildTurnUserMessage(args: {
+function buildTurnPrompt(args: {
   trigger: "start" | "inbox" | "conversation" | "message_sent";
   history: ConversationRow[];
   artistStage: string;
   artistStatus: string;
   currentDm: string | null;
-  imageBase64?: string;
   extraNote?: string;
   mo3ntitHandle?: string | null;
-}): Anthropic.MessageParam {
-  const {
-    trigger,
-    history,
-    artistStage,
-    artistStatus,
-    currentDm,
-    imageBase64,
-    extraNote,
-    mo3ntitHandle,
-  } = args;
-
+}): string {
   const transcript =
-    history.length === 0
+    args.history.length === 0
       ? "(no messages yet)"
-      : history
+      : args.history
           .map((m) => `${m.direction === "out" ? "US" : "ARTIST"}: ${m.body}`)
           .join("\n");
 
-  const stageLabel = FUNNEL_STAGE_LABELS[artistStage as FunnelStage] ?? artistStage;
-  const statusLabel = STATUS_LABELS[artistStatus as ArtistStatus] ?? artistStatus;
+  const stageLabel =
+    FUNNEL_STAGE_LABELS[args.artistStage as FunnelStage] ?? args.artistStage;
+  const statusLabel =
+    STATUS_LABELS[args.artistStatus as ArtistStatus] ?? args.artistStatus;
 
-  const text = `TRIGGER: ${trigger}
-SENDER (mo3ntit): ${mo3ntitHandle ? "@" + mo3ntitHandle : "(unset)"}
-ARTIST STATUS: ${statusLabel} (${artistStatus})
-FUNNEL STAGE: ${stageLabel} (${artistStage})
-CURRENT DM IN BOX: ${currentDm ? `"${currentDm}"` : "(empty)"}
+  return `TRIGGER: ${args.trigger}
+SENDER (mo3ntit): ${args.mo3ntitHandle ? "@" + args.mo3ntitHandle : "(unset)"}
+ARTIST STATUS: ${statusLabel} (${args.artistStatus})
+FUNNEL STAGE: ${stageLabel} (${args.artistStage})
+CURRENT DM IN BOX: ${args.currentDm ? `"${args.currentDm}"` : "(empty)"}
 
 CONVERSATION SO FAR:
 ${transcript}
 
-${extraNote ? `NOTE: ${extraNote}\n\n` : ""}What's the next action?`;
-
-  const content: Anthropic.ContentBlockParam[] = [{ type: "text", text }];
-  if (imageBase64) {
-    content.unshift({
-      type: "image",
-      source: { type: "base64", media_type: "image/png", data: imageBase64 },
-    });
-  }
-  return { role: "user", content };
+${args.extraNote ? `NOTE: ${args.extraNote}\n\n` : ""}What's the next action?`;
 }
 
 // ---- The agent loop ----
 
-const MAX_ITERATIONS = 8;
+const MAX_TURNS = 6;
 
 export async function runAgentTick(args: {
   artistId: string;
@@ -406,93 +170,253 @@ export async function runAgentTick(args: {
     ? (artist.status as string)
     : "new";
 
-  const system = buildSystemPrompt({
-    account: artist.account,
-    nickname: artist.nickname,
-    artist_brief: artist.artist_brief,
-    song_brief: artist.song_brief,
+  // Mutable terminal flag — set by mark_needs_offer / mark_lost.
+  let terminal: AgentTickResult["stopReason"] | null = null;
+  const abortController = new AbortController();
+
+  // ---- Tool definitions ----
+  const okText = (s: string) => ({
+    content: [{ type: "text" as const, text: s }],
   });
 
-  const messages: Anthropic.MessageParam[] = [
-    buildTurnUserMessage({
-      trigger,
-      history,
-      artistStage: stage,
-      artistStatus: status,
-      currentDm: artist.current_dm,
-      imageBase64,
-      extraNote,
-      mo3ntitHandle: mo3ntit?.handle ?? null,
-    }),
-  ];
+  const dashboardServer = createSdkMcpServer({
+    name: "dm",
+    tools: [
+      tool(
+        "display_message",
+        "Put a draft message in the DM textarea on the dashboard. The human's macro will copy and send it when paint_signal triggers them.",
+        { text: z.string() },
+        async ({ text }) => {
+          emit({ type: "tool_called", name: "display_message", input: { text } });
+          emit({ type: "display_message", text });
+          emit({ type: "tool_result", name: "display_message", result: { ok: true } });
+          return okText("displayed");
+        },
+      ),
+      tool(
+        "paint_signal",
+        "Set the macro color swatch. Triggers Macro Commander to do the matching TikTok action. send_dm | open_thread | send_reply | close_next | idle.",
+        { signal: z.enum(MACRO_SIGNAL_VALUES as [MacroSignal, ...MacroSignal[]]) },
+        async ({ signal }) => {
+          emit({ type: "tool_called", name: "paint_signal", input: { signal } });
+          emit({ type: "paint_signal", signal });
+          emit({ type: "tool_result", name: "paint_signal", result: { ok: true } });
+          return okText(`painted ${signal}`);
+        },
+      ),
+      tool(
+        "mark_first_dm_sent",
+        "Confirm the first DM was actually sent (call this when an inbox screenshot has confirmed the macro executed send_dm). Sets status to 'sent', funnel stage to 'rapport', logs the body, syncs to Monday.",
+        { body: z.string() },
+        async ({ body }) => {
+          emit({ type: "tool_called", name: "mark_first_dm_sent", input: { body } });
+          const a = await getArtistById(artistId);
+          if (!a) return okText("artist not found");
+          if (a.first_dm_sent_at) {
+            emit({ type: "tool_result", name: "mark_first_dm_sent", result: { alreadySent: true } });
+            return okText("already sent");
+          }
+          if (!a.selected_mo3ntit_id || !a.last_prompt_id) {
+            return okText("missing mo3ntit or prompt");
+          }
+          await markFirstDmSent({
+            artistId: a.id,
+            mo3ntitId: a.selected_mo3ntit_id,
+            promptId: a.last_prompt_id,
+            body: body || a.current_dm || "",
+          });
+          await updateArtistFunnelStage(a.id, "rapport");
+          if (a.monday_id) {
+            try { await updateMondayStatus(a.monday_id, STATUS_LABELS.sent); } catch {}
+          }
+          emit({ type: "tool_result", name: "mark_first_dm_sent", result: { ok: true } });
+          return okText("first DM marked sent · funnel → rapport · monday synced");
+        },
+      ),
+      tool(
+        "log_outbound",
+        "Log an outbound reply that was just sent. Use after a reply, NOT for the first DM (use mark_first_dm_sent for that).",
+        { body: z.string() },
+        async ({ body }) => {
+          emit({ type: "tool_called", name: "log_outbound", input: { body } });
+          const a = await getArtistById(artistId);
+          if (!a) return okText("artist not found");
+          const existing = await listConversation(artistId);
+          const last = existing.at(-1);
+          if (last && last.direction === "out" && last.body.trim() === body.trim()) {
+            emit({ type: "tool_result", name: "log_outbound", result: { dedupedNoOp: true } });
+            return okText("already logged (deduped)");
+          }
+          await logConversation({
+            artistId,
+            mo3ntitId: a.selected_mo3ntit_id,
+            direction: "out",
+            body,
+            promptId: a.last_prompt_id ?? null,
+            source: "agent",
+          });
+          emit({ type: "tool_result", name: "log_outbound", result: { ok: true } });
+          return okText("logged");
+        },
+      ),
+      tool(
+        "advance_stage",
+        "Move the artist's funnel stage. Use when their last reply signals readiness for the next stage's move.",
+        {
+          stage: z.enum(FUNNEL_STAGES as unknown as [FunnelStage, ...FunnelStage[]]),
+          reason: z.string(),
+        },
+        async ({ stage: newStage }) => {
+          emit({ type: "tool_called", name: "advance_stage", input: { stage: newStage } });
+          await updateArtistFunnelStage(artistId, newStage);
+          emit({ type: "tool_result", name: "advance_stage", result: { stage: newStage } });
+          return okText(`stage → ${newStage}`);
+        },
+      ),
+      tool(
+        "mark_needs_offer",
+        "SUCCESS terminal action. Call when the artist has shown clear interest (asks 'tell me more', 'how much', 'send details') or after closing-stage confirmation. Flips status to needs_offer, syncs Monday, ends the agent's work for this artist.",
+        { reason: z.string() },
+        async ({ reason }) => {
+          emit({ type: "tool_called", name: "mark_needs_offer", input: { reason } });
+          const a = await getArtistById(artistId);
+          if (a) {
+            await updateArtistStatus(artistId, "needs_offer");
+            await updateArtistFunnelStage(artistId, "closing");
+            if (a.monday_id) {
+              try { await updateMondayStatus(a.monday_id, STATUS_LABELS.needs_offer); } catch {}
+            }
+          }
+          terminal = "needs_offer";
+          emit({ type: "tool_result", name: "mark_needs_offer", result: { ok: true, reason } });
+          // Abort the agent loop — we're done with this artist
+          setTimeout(() => abortController.abort(), 0);
+          return okText("marked needs_offer · agent stopping");
+        },
+      ),
+      tool(
+        "mark_lost",
+        "FAILURE terminal action. Use sparingly — only on clear rejection ('not interested', insults, wrong-fit).",
+        { reason: z.string() },
+        async ({ reason }) => {
+          emit({ type: "tool_called", name: "mark_lost", input: { reason } });
+          const a = await getArtistById(artistId);
+          if (a) {
+            await updateArtistStatus(artistId, "lost");
+            if (a.monday_id) {
+              try { await updateMondayStatus(a.monday_id, STATUS_LABELS.lost); } catch {}
+            }
+          }
+          terminal = "lost";
+          emit({ type: "tool_result", name: "mark_lost", result: { ok: true, reason } });
+          setTimeout(() => abortController.abort(), 0);
+          return okText("marked lost · agent stopping");
+        },
+      ),
+    ],
+  });
 
-  let agentText = "";
-  let stopReason: AgentTickResult["stopReason"] = "max_iterations";
-  let terminal = false;
+  // ---- Build user prompt + optional image ----
+  const userText = buildTurnPrompt({
+    trigger,
+    history,
+    artistStage: stage,
+    artistStatus: status,
+    currentDm: artist.current_dm,
+    extraNote,
+    mo3ntitHandle: mo3ntit?.handle ?? null,
+  });
 
-  for (let i = 0; i < MAX_ITERATIONS && !terminal; i++) {
-    const resp = await anthropic().messages.create({
-      model: MODEL,
-      max_tokens: 1024,
-      system,
-      tools: TOOLS,
-      messages,
-    });
-
-    // Capture any text the agent emitted (its "thinking")
-    for (const block of resp.content) {
-      if (block.type === "text" && block.text.trim()) {
-        agentText += block.text + "\n";
-        emit({ type: "thinking", text: block.text });
-      }
+  async function* userMessages(): AsyncIterable<SDKUserMessage> {
+    if (imageBase64) {
+      yield {
+        type: "user",
+        message: {
+          role: "user",
+          content: [
+            {
+              type: "image",
+              source: { type: "base64", media_type: "image/png", data: imageBase64 },
+            },
+            { type: "text", text: userText },
+          ],
+        },
+        parent_tool_use_id: null,
+        session_id: "",
+      };
+    } else {
+      yield {
+        type: "user",
+        message: { role: "user", content: userText },
+        parent_tool_use_id: null,
+        session_id: "",
+      };
     }
-
-    if (resp.stop_reason === "end_turn") {
-      stopReason = "done";
-      break;
-    }
-
-    if (resp.stop_reason !== "tool_use") {
-      stopReason = "done";
-      break;
-    }
-
-    const toolUses = resp.content.filter(
-      (b): b is Anthropic.ToolUseBlock => b.type === "tool_use",
-    );
-
-    const toolResultsContent: Anthropic.ToolResultBlockParam[] = [];
-    for (const tu of toolUses) {
-      emit({ type: "tool_called", name: tu.name, input: tu.input });
-      const exec = await executeTool(
-        tu.name,
-        tu.input as Record<string, unknown>,
-        { artistId, emit },
-      );
-      emit({ type: "tool_result", name: tu.name, result: exec });
-      toolResultsContent.push({
-        type: "tool_result",
-        tool_use_id: tu.id,
-        content: JSON.stringify(exec),
-        is_error: !exec.ok,
-      });
-      if (exec.terminal) {
-        stopReason = exec.terminal;
-        if (exec.terminal !== "done") {
-          // mark_needs_offer or mark_lost — fully terminate
-          terminal = true;
-        } else {
-          // 'done' just yields this turn
-          terminal = true;
-        }
-      }
-    }
-
-    messages.push({ role: "assistant", content: resp.content });
-    messages.push({ role: "user", content: toolResultsContent });
   }
 
-  // Re-read final state
+  // ---- Tools the agent is allowed to call (MCP-prefixed names) ----
+  const toolNames = [
+    "display_message",
+    "paint_signal",
+    "mark_first_dm_sent",
+    "log_outbound",
+    "advance_stage",
+    "mark_needs_offer",
+    "mark_lost",
+  ].map((n) => `mcp__dm__${n}`);
+
+  let agentText = "";
+  let stopReason: AgentTickResult["stopReason"] = "done";
+
+  try {
+    for await (const msg of query({
+      prompt: userMessages(),
+      options: {
+        model: MODEL,
+        maxTurns: MAX_TURNS,
+        systemPrompt: buildSystemPrompt({
+          account: artist.account,
+          nickname: artist.nickname,
+          artist_brief: artist.artist_brief,
+          song_brief: artist.song_brief,
+        }),
+        mcpServers: { dm: dashboardServer },
+        allowedTools: toolNames,
+        tools: [],
+        abortController,
+      },
+    })) {
+      // Capture assistant "thinking" text
+      if (msg.type === "assistant" && "message" in msg) {
+        const content = msg.message.content;
+        if (Array.isArray(content)) {
+          for (const block of content) {
+            if (block.type === "text" && block.text.trim()) {
+              agentText += block.text + "\n";
+              emit({ type: "thinking", text: block.text });
+            }
+          }
+        }
+      }
+      if (msg.type === "result") {
+        if (terminal) stopReason = terminal;
+        else stopReason = "done";
+        break;
+      }
+    }
+  } catch (e) {
+    if (terminal) {
+      stopReason = terminal;
+    } else if ((e as Error).name === "AbortError") {
+      stopReason = "done";
+    } else {
+      console.error("[agent-loop]", e);
+      stopReason = "error";
+    }
+  }
+
+  if (terminal && stopReason === "done") stopReason = terminal;
+
   const finalArtist = await getArtistById(artistId);
 
   return {

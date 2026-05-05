@@ -1,5 +1,4 @@
-import type Anthropic from "@anthropic-ai/sdk";
-import { anthropic, extractJson, MODEL_FAST } from "./claude";
+import { extractJson, generateWithImage, MODEL_FAST } from "./claude-agent";
 import type { ImageAnalysis } from "./types";
 
 const SUPPORTED_MEDIA = ["image/jpeg", "image/png", "image/gif", "image/webp"] as const;
@@ -20,35 +19,19 @@ export async function analyzeProfileImage(imageUrl: string): Promise<ImageAnalys
   const mediaType = resolveMediaType(res.headers.get("content-type"), imageUrl);
   const base64 = Buffer.from(await res.arrayBuffer()).toString("base64");
 
-  const resp = await anthropic().messages.create({
-    model: MODEL_FAST,
-    max_tokens: 500,
-    messages: [
-      {
-        role: "user",
-        content: [
-          {
-            type: "image",
-            source: { type: "base64", media_type: mediaType, data: base64 },
-          },
-          {
-            type: "text",
-            text: `Analyze this TikTok profile picture of a music artist. Return JSON only:
+  const prompt = `Analyze this TikTok profile picture of a music artist. Return JSON only:
 {
   "visualStyle": "short description of aesthetic (lo-fi, polished, DIY, ethereal, etc.)",
   "mood": "one-word dominant mood (melancholic, energetic, dreamy, edgy, etc.)",
   "genreHints": ["up to 3 music genres suggested by visual cues"],
   "description": "1-2 sentence description of what's visible and what it signals about the artist"
-}`,
-          },
-        ],
-      },
-    ],
-  });
+}`;
 
-  const text = resp.content
-    .filter((c): c is Anthropic.TextBlock => c.type === "text")
-    .map((c) => c.text)
-    .join("\n");
+  const text = await generateWithImage({
+    prompt,
+    imageBase64: base64,
+    mediaType,
+    model: MODEL_FAST,
+  });
   return extractJson<ImageAnalysis>(text);
 }
