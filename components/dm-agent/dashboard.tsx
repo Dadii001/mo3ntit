@@ -131,8 +131,10 @@ export function DmAgentDashboard({ initialPrompts }: Props) {
     trigger: "start" | "inbox" | "conversation" | "message_sent";
     imageBase64?: string;
     extraNote?: string;
+    artistId?: string;
   }) {
-    if (!loaded || agentBusy) return;
+    const targetId = args.artistId ?? loaded?.artist.id;
+    if (!targetId || agentBusy) return;
     setAgentBusy(true);
     appendAgentLog(`▶ tick: ${args.trigger}`);
     try {
@@ -140,7 +142,7 @@ export function DmAgentDashboard({ initialPrompts }: Props) {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          artistId: loaded.artist.id,
+          artistId: targetId,
           trigger: args.trigger,
           imageBase64: args.imageBase64,
           extraNote: args.extraNote,
@@ -651,13 +653,34 @@ export function DmAgentDashboard({ initialPrompts }: Props) {
 
         <button
           className={agentOn ? "btn" : "btn-ghost"}
-          disabled={!loaded}
+          disabled={agentBusy || activePrompts.length === 0}
           onClick={async () => {
             const next = !agentOn;
             setAgentOn(next);
-            if (next && loaded) {
-              await runAgentTick({ trigger: "start" });
+            if (!next) return;
+            // Ensure an artist is loaded before kicking off
+            let current = loaded;
+            if (!current) {
+              appendAgentLog("▶ no artist loaded — loading one");
+              setError(null);
+              try {
+                const j = await fetchOne(undefined, undefined, true);
+                if (!j) {
+                  appendAgentLog("✗ no artist available");
+                  setAgentOn(false);
+                  return;
+                }
+                applyLoaded(j);
+                startPrefetch(j.artist.id);
+                current = j as LoadedState & { dm: string };
+              } catch (e) {
+                setError((e as Error).message);
+                appendAgentLog(`✗ load failed: ${(e as Error).message}`);
+                setAgentOn(false);
+                return;
+              }
             }
+            await runAgentTick({ trigger: "start", artistId: current.artist.id });
           }}
           title="Autonomous Claude agent: drives the funnel, paints macro signals, drafts messages. Stops on needs_offer / lost."
         >
