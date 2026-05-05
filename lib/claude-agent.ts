@@ -1,9 +1,13 @@
-// Wrapper that exposes simple text/vision generation using the standard
-// Anthropic SDK with API key auth. We tried using the Claude Agent SDK with
-// CLAUDE_CODE_OAUTH_TOKEN to bill Max plan usage, but the Agent SDK ships a
-// 238 MB platform binary that exceeds Vercel's per-function size limit. So
-// we're back on direct API key billing — same wrapper signatures, different
-// transport underneath.
+// Dual-path Claude wrapper.
+//
+// - Local dev (Windows/Mac/Linux) with CLAUDE_CODE_OAUTH_TOKEN set:
+//     Routes through @anthropic-ai/claude-agent-sdk → consumes from your
+//     Pro/Max subscription budget. The SDK ships a 238MB platform binary,
+//     so it's a devDependency only — never deployed to Vercel.
+//
+// - Vercel (process.env.VERCEL set) or no OAuth token:
+//     Routes through @anthropic-ai/sdk with ANTHROPIC_API_KEY. Same
+//     wrapper signatures so callers don't care which path runs.
 
 import type Anthropic from "@anthropic-ai/sdk";
 import { anthropic } from "./claude";
@@ -11,18 +15,55 @@ import { anthropic } from "./claude";
 export const MODEL = "claude-sonnet-4-5";
 export const MODEL_FAST = "claude-haiku-4-5";
 
-type GenerateArgs = {
-  prompt: string;
-  model?: string;
-  maxTokens?: number;
-};
+const useAgentSdk =
+  !process.env.VERCEL && !!process.env.CLAUDE_CODE_OAUTH_TOKEN;
+
+// Lazy-load the Agent SDK so production never resolves the import.
+type AgentSdk = typeof import("@anthropic-ai/claude-agent-sdk");
+let agentSdkPromise: Promise<AgentSdk | null> | null = null;
+async function getAgentSdk(): Promise<AgentSdk | null> {
+  if (!useAgentSdk) return null;
+  if (!agentSdkPromise) {
+    agentSdkPromise = (async () => {
+      try {
+        // devDependency — may not exist at runtime on Vercel; the catch handles it.
+        const mod = await import("@anthropic-ai/claude-agent-sdk");
+        return mod as AgentSdk;
+      } catch {
+        return null;
+      }
+    })();
+  }
+  return agentSdkPromise;
+}
 
 type ImageInput = {
   base64: string;
   mediaType?: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
 };
 
-export async function generate(args: GenerateArgs): Promise<string> {
+// ---- Generate (text only) ----
+
+export async function generate(args: {
+  prompt: string;
+  model?: string;
+  maxTokens?: number;
+}): Promise<string> {
+  const sdk = await getAgentSdk();
+  if (sdk) {
+    let result = "";
+    for await (const msg of sdk.query({
+      prompt: args.prompt,
+      options: { model: args.model ?? MODEL, maxTurns: 1, tools: [] },
+    })) {
+      if (msg.type === "result" && msg.subtype === "success" && "result" in msg) {
+        result = msg.result;
+      }
+    }
+    if (result) return result.trim();
+    // fall through to API path on empty
+  }
+
   const resp = await anthropic().messages.create({
     model: args.model ?? MODEL,
     max_tokens: args.maxTokens ?? 1024,
@@ -32,6 +73,8 @@ export async function generate(args: GenerateArgs): Promise<string> {
   if (!text) throw new Error("Claude returned no text");
   return text;
 }
+
+// ---- Generate with single image ----
 
 export async function generateWithImage(args: {
   prompt: string;
@@ -48,12 +91,50 @@ export async function generateWithImage(args: {
   });
 }
 
+// ---- Generate with N images ----
+
 export async function generateWithImages(args: {
   prompt: string;
   images: ImageInput[];
   model?: string;
   maxTokens?: number;
 }): Promise<string> {
+  const sdk = await getAgentSdk();
+  if (sdk && args.images.length > 0) {
+    async function* userMessages() {
+      yield {
+        type: "user" as const,
+        message: {
+          role: "user" as const,
+          content: [
+            ...args.images.map((img) => ({
+              type: "image" as const,
+              source: {
+                type: "base64" as const,
+                media_type: img.mediaType ?? "image/jpeg",
+                data: img.base64,
+              },
+            })),
+            { type: "text" as const, text: args.prompt },
+          ],
+        },
+        parent_tool_use_id: null,
+        session_id: "",
+      };
+    }
+
+    let result = "";
+    for await (const msg of sdk.query({
+      prompt: userMessages(),
+      options: { model: args.model ?? MODEL, maxTurns: 1, tools: [] },
+    })) {
+      if (msg.type === "result" && msg.subtype === "success" && "result" in msg) {
+        result = msg.result;
+      }
+    }
+    if (result) return result.trim();
+  }
+
   const blocks: Anthropic.ImageBlockParam[] = args.images.map((img) => ({
     type: "image",
     source: {
