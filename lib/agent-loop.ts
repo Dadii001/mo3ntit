@@ -1,5 +1,6 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { anthropic, MODEL } from "./claude";
+import { detectImageType } from "./claude-agent";
 import { FUNNEL_STAGE_LABELS, FUNNEL_STAGES, type FunnelStage } from "./dm-agent";
 import { updateMondayStatus } from "./monday";
 import {
@@ -359,7 +360,7 @@ ${extraNote ? `NOTE: ${extraNote}\n\n` : ""}What's the next action?`;
   if (imageBase64) {
     content.unshift({
       type: "image",
-      source: { type: "base64", media_type: "image/png", data: imageBase64 },
+      source: { type: "base64", media_type: detectImageType(imageBase64), data: imageBase64 },
     });
   }
   return { role: "user", content };

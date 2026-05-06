@@ -37,10 +37,27 @@ async function getAgentSdk(): Promise<AgentSdk | null> {
   return agentSdkPromise;
 }
 
+type ImageMediaType = "image/png" | "image/jpeg" | "image/gif" | "image/webp";
+
 type ImageInput = {
   base64: string;
-  mediaType?: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
+  mediaType?: ImageMediaType;
 };
+
+/**
+ * Detect an image's MIME type from the first few bytes of its base64-encoded
+ * payload. Anthropic's API rejects requests where the declared media_type
+ * doesn't match the actual image — clipboard pastes are usually PNG, video
+ * frames are usually JPEG, but the caller often doesn't know which.
+ */
+export function detectImageType(base64: string, fallback: ImageMediaType = "image/png"): ImageMediaType {
+  const head = base64.slice(0, 16);
+  if (head.startsWith("iVBORw0KGgo")) return "image/png";
+  if (head.startsWith("/9j/")) return "image/jpeg";
+  if (head.startsWith("R0lGOD")) return "image/gif";
+  if (head.startsWith("UklGR")) return "image/webp";
+  return fallback;
+}
 
 // ---- Generate (text only) ----
 
@@ -111,7 +128,7 @@ export async function generateWithImages(args: {
               type: "image" as const,
               source: {
                 type: "base64" as const,
-                media_type: img.mediaType ?? "image/jpeg",
+                media_type: img.mediaType ?? detectImageType(img.base64),
                 data: img.base64,
               },
             })),
@@ -139,7 +156,7 @@ export async function generateWithImages(args: {
     type: "image",
     source: {
       type: "base64",
-      media_type: img.mediaType ?? "image/jpeg",
+      media_type: img.mediaType ?? detectImageType(img.base64),
       data: img.base64,
     },
   }));
