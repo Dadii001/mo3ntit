@@ -114,14 +114,43 @@ export async function generateFirstDm(args: {
   });
 
   const text = await generate({
-    prompt: `${filled}\n\nReturn only the DM text. No quotes, no preamble, no explanation. Plain text only.`,
+    prompt: `${filled}\n\nOUTPUT RULES (HARD):
+- Return ONE single ready-to-send DM. Plain text only.
+- Do NOT offer two versions, options, alternatives, or "Option A / Option B" splits.
+- Do NOT include hyphens (-), em-dashes (—), or en-dashes (–) anywhere. Use commas, periods, or split into separate sentences instead.
+- No quotes around the message. No preamble like "Here's the DM:". No explanation after.
+- The output goes straight into a TikTok DM textarea exactly as you wrote it.`,
     model: MODEL,
   });
-  return stripQuotes(text);
+  return cleanDmOutput(text);
 }
 
 function stripQuotes(s: string): string {
   return s.replace(/^["'`]+|["'`]+$/g, "").trim();
+}
+
+/**
+ * Post-process a generated DM:
+ *  - strip surrounding quotes
+ *  - drop "Option 1:" / "Version A:" style splits (keep only the first option)
+ *  - replace any hyphen / em-dash / en-dash with a single space, collapse runs of spaces
+ */
+function cleanDmOutput(raw: string): string {
+  let s = stripQuotes(raw);
+
+  // If the model returned multiple options, keep only the first.
+  const optionMatch = s.match(/^([^\n]+?)\n\s*(?:option\s*[2b]|version\s*[2b]|alt(?:ernative)?\s*[2b]?|2[\.\)]|or:|or,)/i);
+  if (optionMatch) s = optionMatch[1];
+
+  // First line if multiple separated by blank lines (option-style sometimes uses blank lines).
+  const blocks = s.split(/\n{2,}/);
+  if (blocks.length > 1) s = blocks[0];
+
+  // Strip dashes/hyphens entirely.
+  s = s.replace(/[-–—]/g, " ");
+  s = s.replace(/\s{2,}/g, " ");
+
+  return s.trim();
 }
 
 export type InboxAnalysis = {
@@ -276,6 +305,8 @@ Hard rules:
 - Plain text, no emojis unless they used one first.
 - Don't quote their words back. Don't say "love your stuff" / "big fan" / "saw your video". Don't mention the song title.
 - Don't pitch anything in stage rapport/qualify. Only in pitch/closing.
+- NEVER include hyphens, em-dashes, or en-dashes in any message. Use commas, periods, or split into separate sentences.
+- NEVER offer two versions or alternatives. Each "messages[i]" is one ready-to-send chunk only.
 
 CADENCE — you can split the reply into 1, 2, or 3 short back-to-back messages if a natural human texting rhythm would do so (e.g. a quick hook, then a follow-up thought, then a question). MOST OF THE TIME use ONE message. Only split when:
 - Each chunk would stand on its own as a complete short thought.
@@ -310,7 +341,7 @@ Return JSON only:
       ? [parsed.reply]
       : [];
   raw = raw
-    .map((m) => stripQuotes((m ?? "").trim()))
+    .map((m) => cleanDmOutput(m ?? ""))
     .filter((m) => m.length > 0)
     .slice(0, 3);
 
@@ -370,9 +401,11 @@ Their song: {{song_brief}}
 Your own style: {{mo3ntit_description}}
 
 Rules:
-- One sentence, max 25 words.
-- Sound like a real person texting, not a brand.
-- Riff on ONE specific detail from their song or vibe — don't list everything.
-- No emojis. No "love your stuff" cliches. No mention of the song title.
-- Match their language ({{song_language}}) if not English.
-- Don't pitch anything yet. Just open the door.`;
+* One sentence, max 25 words.
+* Sound like a real person texting, not a brand.
+* Riff on ONE specific detail from their song or vibe. Don't list everything.
+* No emojis. No "love your stuff" cliches. No mention of the song title.
+* Match their language ({{song_language}}) if not English.
+* Don't pitch anything yet. Just open the door.
+* NEVER include hyphens, em-dashes, or en-dashes. Use commas, periods, or split sentences.
+* Output exactly ONE ready-to-send DM. Never two versions, options, or alternatives.`;
