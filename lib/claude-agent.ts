@@ -184,5 +184,30 @@ export function extractJson<T>(text: string): T {
   if (start === -1 || end === -1) {
     throw new Error(`No JSON object in response: ${text.slice(0, 200)}`);
   }
-  return JSON.parse(raw.slice(start, end + 1)) as T;
+  const slice = raw.slice(start, end + 1);
+
+  // First try strict parse.
+  try {
+    return JSON.parse(slice) as T;
+  } catch (firstErr) {
+    // Common model slips: trailing commas, single-quoted keys, smart quotes.
+    let fixed = slice
+      // strip trailing commas before } or ]
+      .replace(/,(\s*[}\]])/g, "$1")
+      // single-quoted property names → double-quoted: { 'key': → { "key":
+      .replace(/([{,]\s*)'([A-Za-z_][\w-]*)'\s*:/g, '$1"$2":')
+      // bare/unquoted property names: { key: → { "key":
+      .replace(/([{,]\s*)([A-Za-z_][\w-]*)\s*:/g, '$1"$2":')
+      // Smart quotes inside strings → straight quotes
+      .replace(/[“”]/g, '"')
+      .replace(/[‘’]/g, "'");
+
+    try {
+      return JSON.parse(fixed) as T;
+    } catch (secondErr) {
+      throw new Error(
+        `JSON parse failed (tried tolerant fixup): ${(secondErr as Error).message}\n--- raw response (first 400) ---\n${text.slice(0, 400)}`,
+      );
+    }
+  }
 }

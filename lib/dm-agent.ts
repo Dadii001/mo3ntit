@@ -207,15 +207,21 @@ export async function analyzeConversationScreenshot(
 
 The OUTBOUND side is "us" (the mo3ntit account, usually right-aligned). The INBOUND side is the other artist (usually left-aligned).
 
-Return JSON only:
+Return STRICT JSON ONLY. Use double quotes for ALL keys and strings. NO trailing commas. NO comments. NO markdown fencing. The output must parse with JSON.parse() on the first try.
+
+If a message contains double quotes inside it, escape them as \\". If a message contains a backslash, escape it as \\\\. If a message contains a newline, replace it with a space.
+
+Schema:
 {
-  "artistHandle": "<@handle of the other person if visible, else null>",
-  "artistNickname": "<their display name if visible, else null>",
-  "outbound": ["each outbound message in chronological order"],
-  "inbound": ["each inbound message in chronological order"],
-  "lastDirection": "in | out | null",
-  "notes": "<short note about anything unclear, else null>"
-}`;
+  "artistHandle": null OR "@handle",
+  "artistNickname": null OR "display name",
+  "outbound": ["message text", "message text"],
+  "inbound": ["message text", "message text"],
+  "lastDirection": "in" OR "out" OR null,
+  "notes": null OR "short note"
+}
+
+Empty arrays are fine. null values are fine. Do not omit any keys.`;
 
   const text = await generateWithImage({ prompt, imageBase64, model: MODEL });
   return extractJson<ConversationAnalysis>(text);
